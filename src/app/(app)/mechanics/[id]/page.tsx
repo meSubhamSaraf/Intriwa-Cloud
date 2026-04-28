@@ -491,8 +491,9 @@ export default function MechanicDetailPage() {
 
   // Editable state
   const [localStatus, setLocalStatus]   = useState<MechanicStatus>(mech?.currentStatus ?? "free");
-  const [localSkills, setLocalSkills]   = useState<Skill[]>((mech?.skills ?? []) as Skill[]);
+  const [localSkills, setLocalSkills]   = useState<string[]>((mech?.skills ?? []) as string[]);
   const [editingSkills, setEditingSkills] = useState(false);
+  const [customSkillInput, setCustomSkillInput] = useState("");
   const [localHours, setLocalHours]     = useState(mech?.workingHours ?? { start: "08:00", end: "18:00", days: ["Mon","Tue","Wed","Thu","Fri","Sat"] });
   const [editingHours, setEditingHours] = useState(false);
 
@@ -529,10 +530,17 @@ export default function MechanicDetailPage() {
   });
   const maxEarned = Math.max(...weekEarnings.map((e) => e.earned), 1);
 
-  function toggleSkill(skill: Skill) {
+  function toggleSkill(skill: string) {
     setLocalSkills((prev) =>
       prev.includes(skill) ? prev.filter((s) => s !== skill) : [...prev, skill]
     );
+  }
+
+  function addCustomSkill() {
+    const s = customSkillInput.trim();
+    if (!s || localSkills.includes(s)) return;
+    setLocalSkills((prev) => [...prev, s]);
+    setCustomSkillInput("");
   }
 
   function toggleDay(day: string) {
@@ -623,25 +631,56 @@ export default function MechanicDetailPage() {
                 )}
               </div>
               <div className="flex flex-wrap gap-1">
-                {editingSkills
-                  ? ALL_SKILLS.map((s) => (
+                {editingSkills ? (
+                  <>
+                    {/* Preset skill toggles */}
+                    {ALL_SKILLS.map((s) => (
                       <button
                         key={s}
                         onClick={() => toggleSkill(s)}
                         className={`text-[10px] font-medium px-1.5 py-0.5 rounded border transition-colors ${
                           localSkills.includes(s)
-                            ? SKILL_COLORS[s] + " ring-1 ring-offset-0 ring-current"
+                            ? (SKILL_COLORS[s] ?? "text-slate-600 bg-slate-100 border-slate-200") + " ring-1 ring-offset-0 ring-current"
                             : "text-slate-300 bg-white border-slate-200 hover:border-slate-300"
                         }`}
                       >
                         {s}
                       </button>
-                    ))
-                  : localSkills.map((s) => (
-                      <span key={s} className={`text-[10px] font-medium px-1.5 py-0.5 rounded border ${SKILL_COLORS[s] ?? "text-slate-600 bg-slate-100 border-slate-200"}`}>
+                    ))}
+                    {/* Custom skills (removable) */}
+                    {localSkills.filter((s) => !ALL_SKILLS.includes(s as typeof ALL_SKILLS[number])).map((s) => (
+                      <span key={s} className="flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded border text-violet-700 bg-violet-50 border-violet-200">
                         {s}
+                        <button onClick={() => setLocalSkills((prev) => prev.filter((x) => x !== s))} className="text-violet-400 hover:text-red-500 transition-colors">
+                          <X className="w-2.5 h-2.5" />
+                        </button>
                       </span>
                     ))}
+                    {/* Add custom skill input */}
+                    <div className="flex items-center gap-1 mt-1 w-full">
+                      <input
+                        type="text"
+                        placeholder="Add custom skill…"
+                        value={customSkillInput}
+                        onChange={(e) => setCustomSkillInput(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCustomSkill(); } }}
+                        className="text-[10px] border border-dashed border-brand-navy-300 rounded px-2 py-0.5 focus:outline-none focus:border-brand-navy-500 w-36"
+                      />
+                      <button
+                        onClick={addCustomSkill}
+                        className="text-[10px] font-medium text-brand-navy-600 hover:text-brand-navy-800 transition-colors"
+                      >
+                        + Add
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  localSkills.map((s) => (
+                    <span key={s} className={`text-[10px] font-medium px-1.5 py-0.5 rounded border ${SKILL_COLORS[s as keyof typeof SKILL_COLORS] ?? "text-violet-700 bg-violet-50 border-violet-200"}`}>
+                      {s}
+                    </span>
+                  ))
+                )}
               </div>
             </div>
 

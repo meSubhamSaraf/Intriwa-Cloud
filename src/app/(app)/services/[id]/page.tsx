@@ -8,7 +8,7 @@ import {
   AlertTriangle, CheckCircle2, Receipt, CreditCard, Star,
   ImageIcon, Phone, MessageCircle, UserCog, ChevronDown,
   Plus, CheckCircle, XCircle, Clock, Send, RotateCcw,
-  Home, FileText, Pencil, Flame, Edit2, ArrowRight,
+  Home, FileText, Pencil, Flame, Edit2, ArrowRight, X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -17,6 +17,7 @@ import { serviceRequests, type TimelineEvent } from "@/lib/mock-data/serviceRequ
 import { customers } from "@/lib/mock-data/customers";
 import { vehicles } from "@/lib/mock-data/vehicles";
 import { mechanics } from "@/lib/mock-data/mechanics";
+import { inventoryItems } from "@/lib/mock-data/inventory";
 
 // ── Constants ────────────────────────────────────────────────────
 
@@ -389,11 +390,39 @@ function TLEvent({
 
 // ── Right panel: Job Summary ─────────────────────────────────────
 
+type UsedItem = { itemId: string; itemName: string; unit: string; qty: number; unitCost: number };
+
 function JobSummary({
   sr,
 }: {
   sr: NonNullable<ReturnType<typeof serviceRequests.find>>;
 }) {
+  const [usedItems, setUsedItems] = useState<UsedItem[]>([]);
+  const [selectedItemId, setSelectedItemId] = useState("");
+  const [selectedQty, setSelectedQty] = useState("1");
+  const [invoiceRaised, setInvoiceRaised] = useState(false);
+
+  function addUsedItem() {
+    const inv = inventoryItems.find((i) => i.id === selectedItemId);
+    if (!inv || !selectedQty) return;
+    const qty = parseFloat(selectedQty) || 1;
+    setUsedItems((prev) => {
+      const existing = prev.find((i) => i.itemId === inv.id);
+      if (existing) return prev.map((i) => i.itemId === inv.id ? { ...i, qty: i.qty + qty } : i);
+      return [...prev, { itemId: inv.id, itemName: inv.name, unit: inv.unit, qty, unitCost: inv.unitCost }];
+    });
+    setSelectedItemId("");
+    setSelectedQty("1");
+  }
+
+  function raiseInvoice() {
+    setInvoiceRaised(true);
+    const deductions = usedItems.map((i) => `${i.itemName} ×${i.qty}`).join(", ");
+    toast.success(`Invoice raised · ${deductions ? `Stock deducted: ${deductions}` : "No items used"}`);
+  }
+
+  const itemsCost = usedItems.reduce((s, i) => s + i.qty * i.unitCost, 0);
+
   return (
     <div className="bg-white border border-slate-200 rounded-lg p-4">
       <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Job Summary</h3>
@@ -415,47 +444,115 @@ function JobSummary({
       </div>
 
       {sr.addOns.length > 0 && (
-        <>
-          <div className="border-t border-slate-100 pt-2 mb-2">
-            <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wide mb-2">Add-ons</p>
-            {sr.addOns.map((ao) => (
-              <div key={ao.id} className="flex items-center justify-between gap-2 mb-1.5">
-                <div className="min-w-0 flex-1">
-                  <p className="text-[11px] text-slate-700 truncate">{ao.name}</p>
-                  <StatusBadge status={ao.status} />
-                </div>
-                <span className="text-[11px] font-medium text-slate-600 tabular-nums whitespace-nowrap">
-                  +{fmtRupee(ao.price)}
-                </span>
+        <div className="border-t border-slate-100 pt-2 mb-2">
+          <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wide mb-2">Add-ons</p>
+          {sr.addOns.map((ao) => (
+            <div key={ao.id} className="flex items-center justify-between gap-2 mb-1.5">
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] text-slate-700 truncate">{ao.name}</p>
+                <StatusBadge status={ao.status} />
               </div>
-            ))}
-          </div>
-        </>
+              <span className="text-[11px] font-medium text-slate-600 tabular-nums whitespace-nowrap">
+                +{fmtRupee(ao.price)}
+              </span>
+            </div>
+          ))}
+        </div>
       )}
 
-      <div className="border-t border-slate-200 pt-2 mt-2">
+      {/* Items Used from Inventory */}
+      <div className="border-t border-slate-100 pt-2 mb-2">
+        <div className="flex items-center justify-between mb-1.5">
+          <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wide">Items Used</p>
+          {usedItems.length > 0 && (
+            <span className="text-[10px] text-amber-600 font-medium">
+              {invoiceRaised ? "✓ Deducted" : "Deducted on invoice"}
+            </span>
+          )}
+        </div>
+
+        {usedItems.map((i) => (
+          <div key={i.itemId} className="flex items-center justify-between gap-2 mb-1">
+            <div className="min-w-0 flex-1">
+              <p className="text-[11px] text-slate-700 truncate">{i.itemName}</p>
+              <p className="text-[10px] text-slate-400">{i.qty} {i.unit} × {fmtRupee(i.unitCost)}</p>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span className="text-[11px] font-medium text-slate-600 tabular-nums">{fmtRupee(i.qty * i.unitCost)}</span>
+              {!invoiceRaised && (
+                <button onClick={() => setUsedItems((prev) => prev.filter((x) => x.itemId !== i.itemId))} className="text-slate-300 hover:text-red-400 transition-colors">
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+
+        {!invoiceRaised && (
+          <div className="flex gap-1.5 mt-1.5">
+            <select
+              value={selectedItemId}
+              onChange={(e) => setSelectedItemId(e.target.value)}
+              className="flex-1 text-[10px] border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-brand-navy-400 bg-white min-w-0"
+            >
+              <option value="">Select item…</option>
+              {inventoryItems.map((i) => (
+                <option key={i.id} value={i.id}>{i.name} ({i.currentStock} {i.unit})</option>
+              ))}
+            </select>
+            <input
+              type="number"
+              min={0.5}
+              step={0.5}
+              value={selectedQty}
+              onChange={(e) => setSelectedQty(e.target.value)}
+              className="w-12 text-[10px] border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-brand-navy-400 text-center"
+              placeholder="Qty"
+            />
+            <button
+              onClick={addUsedItem}
+              disabled={!selectedItemId}
+              className="w-7 h-7 flex items-center justify-center rounded bg-brand-navy-50 text-brand-navy-600 hover:bg-brand-navy-100 border border-brand-navy-200 transition-colors disabled:opacity-40"
+            >
+              <Plus className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div className="border-t border-slate-200 pt-2 mt-2 space-y-1">
+        <div className="flex items-center justify-between text-[11px] text-slate-500">
+          <span>Service total</span>
+          <span className="tabular-nums">{fmtRupee(sr.finalAmount ?? sr.estimatedAmount)}</span>
+        </div>
+        {itemsCost > 0 && (
+          <div className="flex items-center justify-between text-[11px] text-slate-500">
+            <span>Items used</span>
+            <span className="tabular-nums">{fmtRupee(itemsCost)}</span>
+          </div>
+        )}
         <div className="flex items-center justify-between">
-          <span className="text-xs text-slate-500">
-            {sr.finalAmount ? "Final amount" : "Estimate"}
-          </span>
+          <span className="text-xs text-slate-500 font-medium">{sr.finalAmount ? "Final amount" : "Estimate"}</span>
           <span className="text-base font-bold text-slate-800 tabular-nums">
-            {fmtRupee(sr.finalAmount ?? sr.estimatedAmount)}
+            {fmtRupee((sr.finalAmount ?? sr.estimatedAmount) + itemsCost)}
           </span>
         </div>
       </div>
 
       <div className="flex gap-2 mt-3">
         <button
-          onClick={() => toast.success("Add service item (mock)")}
-          className="flex-1 flex items-center justify-center gap-1 text-xs font-medium text-brand-navy-700 hover:bg-brand-navy-50 py-1.5 rounded border border-brand-navy-200 transition-colors"
-        >
-          <Plus className="w-3.5 h-3.5" /> Add Item
-        </button>
-        <button
           onClick={() => toast.success("Flag add-on (mock)")}
           className="flex-1 flex items-center justify-center gap-1 text-xs font-medium text-orange-700 hover:bg-orange-50 py-1.5 rounded border border-orange-200 transition-colors"
         >
           <Flame className="w-3.5 h-3.5" /> Flag Add-On
+        </button>
+        <button
+          onClick={raiseInvoice}
+          disabled={invoiceRaised}
+          className={`flex-1 flex items-center justify-center gap-1 text-xs font-medium py-1.5 rounded border transition-colors ${invoiceRaised ? "text-green-700 bg-green-50 border-green-200 cursor-default" : "text-brand-navy-700 bg-brand-navy-50 hover:bg-brand-navy-100 border-brand-navy-200"}`}
+        >
+          <Receipt className="w-3.5 h-3.5" />
+          {invoiceRaised ? "Invoice Raised" : "Raise Invoice"}
         </button>
       </div>
     </div>

@@ -19,6 +19,9 @@ import {
   BarChart3,
   Smartphone,
   CreditCard,
+  CalendarCheck,
+  Package,
+  ShieldCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -34,8 +37,10 @@ const navItems = [
   { href: "/vehicles", label: "Vehicles", icon: Car },
   { href: "/services", label: "Services", icon: Wrench },
   { href: "/mechanics", label: "Mechanics", icon: UserCog },
+  { href: "/attendance", label: "Attendance", icon: CalendarCheck },
   { href: "/societies", label: "Societies", icon: Building2 },
   { href: "/followups", label: "Follow-ups", icon: Clock },
+  { href: "/inventory", label: "Inventory", icon: Package },
   { href: "/invoices", label: "Invoices", icon: Receipt },
   { href: "/subscriptions", label: "Subscriptions", icon: CreditCard },
   { href: "/dispatch", label: "Dispatch", icon: Route },
@@ -135,6 +140,18 @@ export function Sidebar({ expanded, onToggle }: SidebarProps) {
         {expanded ? (
           <>
             <Link
+              href="/admin"
+              className={cn(
+                "flex items-center gap-2.5 px-2 py-2 rounded text-sm font-medium transition-colors",
+                isActive("/admin")
+                  ? "bg-brand-navy-700 text-white"
+                  : "text-brand-navy-300 hover:bg-brand-navy-700 hover:text-white"
+              )}
+            >
+              <ShieldCheck className="w-4 h-4 shrink-0" />
+              <span>Admin</span>
+            </Link>
+            <Link
               href="/settings"
               className={cn(
                 "flex items-center gap-2.5 px-2 py-2 rounded text-sm font-medium transition-colors",
@@ -166,6 +183,20 @@ export function Sidebar({ expanded, onToggle }: SidebarProps) {
           </>
         ) : (
           <>
+            <Tooltip>
+              <TooltipTrigger
+                onClick={() => router.push("/admin")}
+                className={cn(
+                  "flex items-center justify-center w-10 h-10 rounded transition-colors",
+                  isActive("/admin")
+                    ? "bg-brand-navy-700 text-white"
+                    : "text-brand-navy-300 hover:bg-brand-navy-700 hover:text-white"
+                )}
+              >
+                <ShieldCheck className="w-4 h-4" />
+              </TooltipTrigger>
+              <TooltipContent side="right" sideOffset={8}>Admin</TooltipContent>
+            </Tooltip>
             <Tooltip>
               <TooltipTrigger
                 onClick={() => router.push("/settings")}
