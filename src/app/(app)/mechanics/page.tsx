@@ -1,0 +1,299 @@
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { Plus, Search, Phone, ArrowRight, Star, Briefcase, UserCog } from "lucide-react";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { mechanics, Mechanic, MechanicStatus } from "@/lib/mock-data/mechanics";
+import { serviceRequests } from "@/lib/mock-data/serviceRequests";
+import { customers } from "@/lib/mock-data/customers";
+import { vehicles } from "@/lib/mock-data/vehicles";
+
+// ── Helpers ───────────────────────────────────────────────────────
+
+type Skill = Mechanic["skills"][number];
+
+const ALL_SKILLS: Skill[] = ["2W", "4W", "AC", "Accessory", "Body", "Engine", "Electrical"];
+
+const SKILL_COLORS: Record<Skill, string> = {
+  "2W":         "text-violet-700 bg-violet-50 border-violet-200",
+  "4W":         "text-blue-700 bg-blue-50 border-blue-200",
+  AC:           "text-cyan-700 bg-cyan-50 border-cyan-200",
+  Accessory:    "text-amber-700 bg-amber-50 border-amber-200",
+  Body:         "text-pink-700 bg-pink-50 border-pink-200",
+  Engine:       "text-red-700 bg-red-50 border-red-200",
+  Electrical:   "text-yellow-700 bg-yellow-50 border-yellow-200",
+};
+
+const STATUS_DOT: Record<MechanicStatus, string> = {
+  free:         "bg-green-500",
+  on_the_way:   "bg-amber-400",
+  on_job:       "bg-blue-500",
+  break:        "bg-amber-400",
+  off_duty:     "bg-slate-300",
+};
+
+const STATUS_LABEL: Record<MechanicStatus, string> = {
+  free:         "Free",
+  on_the_way:   "On the way",
+  on_job:       "On job",
+  break:        "On break",
+  off_duty:     "Off duty",
+};
+
+const STATUS_TEXT: Record<MechanicStatus, string> = {
+  free:         "text-green-700",
+  on_the_way:   "text-amber-700",
+  on_job:       "text-blue-700",
+  break:        "text-amber-600",
+  off_duty:     "text-slate-400",
+};
+
+function weeklyRevenue(monthly: number) {
+  return Math.round(monthly / 4.33);
+}
+
+function fmtRupee(n: number) {
+  return "₹" + n.toLocaleString("en-IN");
+}
+
+function avatarBg(name: string) {
+  const colors = [
+    "bg-blue-200 text-blue-800", "bg-violet-200 text-violet-800",
+    "bg-green-200 text-green-800", "bg-amber-200 text-amber-800",
+    "bg-pink-200 text-pink-800",  "bg-cyan-200 text-cyan-800",
+    "bg-red-200 text-red-800",    "bg-indigo-200 text-indigo-800",
+  ];
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff;
+  return colors[h % colors.length];
+}
+
+function initials(name: string) {
+  return name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase();
+}
+
+// ── Card ──────────────────────────────────────────────────────────
+
+function MechanicCard({ mech }: { mech: Mechanic }) {
+  const router = useRouter();
+  const currentSR = mech.currentJobId
+    ? serviceRequests.find((sr) => sr.id === mech.currentJobId)
+    : null;
+  const currentCustomer = currentSR ? customers.find((c) => c.id === currentSR.customerId) : null;
+  const currentVehicle = currentSR ? vehicles.find((v) => v.id === currentSR.vehicleId) : null;
+
+  return (
+    <div onClick={() => router.push(`/mechanics/${mech.id}`)} className="bg-white border border-slate-200 rounded-lg p-4 flex flex-col gap-3 hover:border-slate-300 transition-colors cursor-pointer">
+      {/* Top row */}
+      <div className="flex items-start gap-3">
+        <div className={`w-11 h-11 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 ${avatarBg(mech.name)}`}>
+          {initials(mech.name)}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="text-sm font-semibold text-slate-800">{mech.name}</p>
+            <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded border ${
+              mech.employmentType === "employee"
+                ? "text-brand-navy-700 bg-brand-navy-50 border-brand-navy-200"
+                : "text-slate-600 bg-slate-100 border-slate-200"
+            }`}>
+              {mech.employmentType === "employee" ? "Employee" : "Freelance"}
+            </span>
+          </div>
+          <div className="flex items-center gap-1 mt-0.5 text-[11px] text-slate-400">
+            <Phone className="w-3 h-3" />
+            <span className="tabular-nums">{mech.phone}</span>
+          </div>
+        </div>
+        <Link
+          href={`/mechanics/${mech.id}`}
+          className="w-7 h-7 flex items-center justify-center rounded text-slate-400 hover:text-brand-navy-600 hover:bg-brand-navy-50 transition-colors flex-shrink-0"
+        >
+          <ArrowRight className="w-3.5 h-3.5" />
+        </Link>
+      </div>
+
+      {/* Status */}
+      <div className="flex items-center gap-2">
+        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${STATUS_DOT[mech.currentStatus]}`} />
+        <span className={`text-[12px] font-medium ${STATUS_TEXT[mech.currentStatus]}`}>
+          {STATUS_LABEL[mech.currentStatus]}
+        </span>
+        {currentSR && currentCustomer && currentVehicle && (
+          <span className="text-[11px] text-slate-400">
+            — {currentCustomer.name}, {currentVehicle.make} {currentVehicle.model}
+          </span>
+        )}
+      </div>
+
+      {/* Stats row */}
+      <div className="grid grid-cols-3 gap-2">
+        <Stat
+          label="Today"
+          value={`${mech.todaysCompletedCount}/${mech.todaysJobCount}`}
+          sub="jobs done"
+          icon={<Briefcase className="w-3 h-3 text-slate-400" />}
+        />
+        <Stat
+          label="Weekly rev."
+          value={fmtRupee(weeklyRevenue(mech.monthlyRevenue))}
+          sub="est."
+        />
+        <Stat
+          label="Rating"
+          value={String(mech.rating)}
+          sub="/ 5"
+          icon={<Star className="w-3 h-3 text-amber-400 fill-amber-400" />}
+        />
+      </div>
+
+      {/* Skills */}
+      <div className="flex flex-wrap gap-1">
+        {mech.skills.map((s) => (
+          <span key={s} className={`text-[10px] font-medium px-1.5 py-0.5 rounded border ${SKILL_COLORS[s]}`}>
+            {s}
+          </span>
+        ))}
+      </div>
+
+      {/* Hours */}
+      <p className="text-[11px] text-slate-400">
+        {mech.workingHours.days.join(", ")} · {mech.workingHours.start}–{mech.workingHours.end}
+      </p>
+    </div>
+  );
+}
+
+function Stat({ label, value, sub, icon }: { label: string; value: string; sub: string; icon?: React.ReactNode }) {
+  return (
+    <div className="bg-slate-50 rounded-md px-2.5 py-2">
+      <p className="text-[10px] text-slate-400 font-medium">{label}</p>
+      <div className="flex items-center gap-1 mt-0.5">
+        {icon}
+        <p className="text-sm font-semibold text-slate-800 tabular-nums">{value}</p>
+      </div>
+      <p className="text-[10px] text-slate-400">{sub}</p>
+    </div>
+  );
+}
+
+// ── Page ──────────────────────────────────────────────────────────
+
+export default function MechanicsPage() {
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<MechanicStatus | "all">("all");
+  const [skillFilters, setSkillFilters] = useState<Skill[]>([]);
+
+  function toggleSkill(skill: Skill) {
+    setSkillFilters((prev) =>
+      prev.includes(skill) ? prev.filter((s) => s !== skill) : [...prev, skill]
+    );
+  }
+
+  const filtered = mechanics.filter((m) => {
+    const matchQuery =
+      !query ||
+      m.name.toLowerCase().includes(query.toLowerCase()) ||
+      m.phone.includes(query);
+    const matchStatus = statusFilter === "all" || m.currentStatus === statusFilter;
+    const matchSkills =
+      skillFilters.length === 0 ||
+      skillFilters.every((s) => m.skills.includes(s));
+    return matchQuery && matchStatus && matchSkills;
+  });
+
+  const freeCnt = mechanics.filter((m) => m.currentStatus === "free").length;
+  const busyCnt = mechanics.filter((m) => m.currentStatus === "on_job" || m.currentStatus === "on_the_way").length;
+
+  return (
+    <div className="p-4">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h1 className="text-base font-semibold text-slate-800">Mechanics</h1>
+          <p className="text-[11px] text-slate-500">
+            {freeCnt} free · {busyCnt} on job · {mechanics.length} total
+          </p>
+        </div>
+        <button
+          onClick={() => {}}
+          className="flex items-center gap-1.5 text-sm font-medium bg-brand-navy-800 text-white hover:bg-brand-navy-700 px-3 py-2 rounded-md transition-colors"
+        >
+          <Plus className="w-4 h-4" /> Add Mechanic
+        </button>
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-wrap gap-2 mb-4">
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+          <input
+            type="text"
+            placeholder="Search name or phone…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="h-8 pl-8 pr-3 text-sm bg-white border border-slate-200 rounded-md text-slate-600 placeholder:text-slate-400 focus:outline-none focus:border-brand-navy-400 w-52 transition-colors"
+          />
+        </div>
+
+        <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value as MechanicStatus | "all")}
+          className="h-8 px-2.5 text-sm border border-slate-200 rounded-md bg-white text-slate-700 focus:outline-none"
+        >
+          <option value="all">All statuses</option>
+          <option value="free">Free</option>
+          <option value="on_job">On job</option>
+          <option value="on_the_way">On the way</option>
+          <option value="break">On break</option>
+          <option value="off_duty">Off duty</option>
+        </select>
+
+        {/* Skill toggles */}
+        <div className="flex items-center gap-1 flex-wrap">
+          {ALL_SKILLS.map((skill) => {
+            const active = skillFilters.includes(skill);
+            return (
+              <button
+                key={skill}
+                onClick={() => toggleSkill(skill)}
+                className={`h-8 px-2.5 text-xs font-medium rounded-md border transition-colors ${
+                  active
+                    ? "bg-brand-navy-800 text-white border-brand-navy-800"
+                    : "bg-white text-slate-600 border-slate-200 hover:border-brand-navy-300"
+                }`}
+              >
+                {skill}
+              </button>
+            );
+          })}
+          {skillFilters.length > 0 && (
+            <button
+              onClick={() => setSkillFilters([])}
+              className="h-8 px-2 text-[11px] text-slate-400 hover:text-slate-600"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Cards */}
+      {filtered.length > 0 ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {filtered.map((m) => (
+            <MechanicCard key={m.id} mech={m} />
+          ))}
+        </div>
+      ) : (
+        <EmptyState
+          icon={UserCog}
+          title="No mechanics match your filters"
+          description="Try adjusting your search, status, or skill filters."
+        />
+      )}
+    </div>
+  );
+}
