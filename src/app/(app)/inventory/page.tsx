@@ -3,8 +3,9 @@
 import { useState, useRef } from "react";
 import {
   Package, AlertTriangle, TrendingDown, Plus, Upload,
-  Search, X, Check, FileText, ChevronDown, Trash2,
-  ShoppingCart, Eye,
+  Search, X, Check, FileText, Trash2,
+  ShoppingCart, Eye, History, ArrowUp, ArrowDown,
+  Tag, MessageSquare, ChevronRight,
 } from "lucide-react";
 import { inventoryItems, purchaseOrders, type InventoryItem, type PurchaseOrderItem } from "@/lib/mock-data/inventory";
 import { toast } from "sonner";
@@ -23,6 +24,311 @@ function fmtDate(iso: string) {
 const CATEGORIES = ["All", "Lubricants", "Filters", "Fluids", "Cleaning", "Accessories", "Spare Parts", "Equipment"];
 
 type StockFilter = "all" | "low" | "out";
+
+// ── Audit trail ───────────────────────────────────────────────────
+
+type AuditType = "stock_added" | "stock_adjusted" | "price_changed" | "purchase_recorded";
+
+type AuditEntry = {
+  id: string;
+  itemId: string;
+  type: AuditType;
+  oldValue: number;
+  newValue: number;
+  comment: string;
+  hasFile: boolean;
+  fileName?: string;
+  by: string;
+  timestamp: string;
+};
+
+const AUDIT_CONFIG: Record<AuditType, { label: string; color: string; icon: React.ElementType }> = {
+  stock_added:       { label: "Stock Added",       color: "text-green-700 bg-green-50 border-green-200",  icon: ArrowUp   },
+  stock_adjusted:    { label: "Stock Adjusted",    color: "text-amber-700 bg-amber-50 border-amber-200",  icon: ArrowDown },
+  price_changed:     { label: "Price Updated",     color: "text-blue-700 bg-blue-50 border-blue-200",    icon: Tag       },
+  purchase_recorded: { label: "Purchase Recorded", color: "text-violet-700 bg-violet-50 border-violet-200", icon: ShoppingCart },
+};
+
+// Seed audit history for existing items
+const SEED_AUDITS: AuditEntry[] = [
+  { id: "a1",  itemId: "inv1",  type: "stock_added",       oldValue: 25, newValue: 45, comment: "Monthly restock from Mobil distributor",      hasFile: true,  fileName: "mobil_april_bill.pdf", by: "Rohan M.", timestamp: "2026-04-20T10:15:00" },
+  { id: "a2",  itemId: "inv1",  type: "price_changed",     oldValue: 260, newValue: 280, comment: "Supplier revised price from Apr 2026",      hasFile: false, by: "Rohan M.", timestamp: "2026-04-01T09:00:00" },
+  { id: "a3",  itemId: "inv2",  type: "stock_added",       oldValue: 0,  newValue: 8,  comment: "Initial stock from Mobil distributor order",  hasFile: true,  fileName: "mobil_april_bill.pdf", by: "Rohan M.", timestamp: "2026-04-20T10:15:00" },
+  { id: "a4",  itemId: "inv3",  type: "stock_added",       oldValue: 7,  newValue: 22, comment: "FilterKing April order — 15 pcs",             hasFile: true,  fileName: "filterking_apr.jpg",  by: "Rohan M.", timestamp: "2026-04-15T11:30:00" },
+  { id: "a5",  itemId: "inv4",  type: "stock_added",       oldValue: 0,  newValue: 8,  comment: "FilterKing April order — 8 pcs",              hasFile: true,  fileName: "filterking_apr.jpg",  by: "Rohan M.", timestamp: "2026-04-15T11:30:00" },
+  { id: "a6",  itemId: "inv4",  type: "stock_adjusted",    oldValue: 8,  newValue: 3,  comment: "5 used across SRs in April — manual correction", hasFile: false, by: "Rohan M.", timestamp: "2026-04-22T16:00:00" },
+  { id: "a7",  itemId: "inv5",  type: "stock_added",       oldValue: 6,  newValue: 12, comment: "Fluid World April restocking",                hasFile: false, by: "Rohan M.", timestamp: "2026-04-10T14:00:00" },
+  { id: "a8",  itemId: "inv7",  type: "stock_added",       oldValue: 20, newValue: 30, comment: "AutoZone April order — cleaning supplies",    hasFile: true,  fileName: "autozone_apr25.jpg",  by: "Rohan M.", timestamp: "2026-04-25T09:30:00" },
+  { id: "a9",  itemId: "inv8",  type: "stock_added",       oldValue: 35, newValue: 65, comment: "AutoZone April order — 30 cloths",            hasFile: true,  fileName: "autozone_apr25.jpg",  by: "Rohan M.", timestamp: "2026-04-25T09:30:00" },
+  { id: "a10", itemId: "inv12", type: "price_changed",     oldValue: 1100, newValue: 1200, comment: "Vendor rate hike — BrakeMart April",     hasFile: true,  fileName: "brakemart_ratecard.pdf", by: "Rohan M.", timestamp: "2026-04-02T10:00:00" },
+  { id: "a11", itemId: "inv12", type: "stock_added",       oldValue: 0,  newValue: 4,  comment: "BrakeMart April order",                      hasFile: true,  fileName: "brakemart_apr.jpg",   by: "Rohan M.", timestamp: "2026-04-02T10:00:00" },
+  { id: "a12", itemId: "inv12", type: "stock_adjusted",    oldValue: 4,  newValue: 2,  comment: "2 sets used in SR-045 and SR-061",           hasFile: false, by: "Rohan M.", timestamp: "2026-04-18T17:00:00" },
+];
+
+function fmtTimestamp(iso: string) {
+  return new Date(iso).toLocaleString("en-IN", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: true });
+}
+
+// ── Item detail drawer ─────────────────────────────────────────────
+
+function ItemDetailDrawer({
+  item,
+  audits,
+  onClose,
+  onUpdate,
+}: {
+  item: InventoryItem;
+  audits: AuditEntry[];
+  onClose: () => void;
+  onUpdate: (itemId: string, type: AuditType, oldVal: number, newVal: number, comment: string, hasFile: boolean, fileName?: string) => void;
+}) {
+  const [actionTab, setActionTab] = useState<"add_stock" | "adjust_price">("add_stock");
+  const [inputValue, setInputValue] = useState("");
+  const [comment, setComment] = useState("");
+  const [fileUploaded, setFileUploaded] = useState(false);
+  const [fileName, setFileName] = useState("");
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const canSubmit = (comment.trim().length > 0 || fileUploaded) && inputValue !== "";
+
+  function handleSubmit() {
+    if (!canSubmit) return;
+    const val = parseFloat(inputValue);
+    if (isNaN(val) || val <= 0) return;
+
+    if (actionTab === "add_stock") {
+      onUpdate(item.id, "stock_added", item.currentStock, item.currentStock + val, comment.trim(), fileUploaded, fileName || undefined);
+      toast.success(`+${val} ${item.unit} added to ${item.name}`);
+    } else {
+      onUpdate(item.id, "price_changed", item.unitCost, val, comment.trim(), fileUploaded, fileName || undefined);
+      toast.success(`Price updated to ${fmtRupee(val)} for ${item.name}`);
+    }
+    setInputValue("");
+    setComment("");
+    setFileUploaded(false);
+    setFileName("");
+  }
+
+  const itemAudits = audits.filter((a) => a.itemId === item.id).sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end">
+      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
+      <div className="relative bg-white w-full max-w-lg h-full flex flex-col shadow-2xl overflow-hidden">
+
+        {/* Header */}
+        <div className="px-5 py-4 border-b border-slate-200 shrink-0 bg-white">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-slate-800">{item.name}</h2>
+              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                <span className="text-[10px] text-slate-400">{item.category} · {item.unit}</span>
+                <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full border ${
+                  item.currentStock === 0 ? "text-red-700 bg-red-50 border-red-200"
+                  : item.currentStock <= item.minStock ? "text-amber-700 bg-amber-50 border-amber-200"
+                  : "text-green-700 bg-green-50 border-green-200"
+                }`}>
+                  {item.currentStock === 0 ? "Out of Stock" : item.currentStock <= item.minStock ? "Low Stock" : "In Stock"}
+                </span>
+              </div>
+            </div>
+            <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded hover:bg-slate-100 text-slate-400 transition-colors shrink-0">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Current stats */}
+          <div className="grid grid-cols-3 gap-3 mt-3">
+            {[
+              { label: "In Stock", value: `${item.currentStock} ${item.unit}` },
+              { label: "Min Stock", value: `${item.minStock} ${item.unit}` },
+              { label: "Unit Cost", value: fmtRupee(item.unitCost) },
+            ].map(({ label, value }) => (
+              <div key={label} className="bg-slate-50 rounded-lg px-3 py-2 border border-slate-100">
+                <p className="text-[9px] font-medium text-slate-400 uppercase tracking-wide">{label}</p>
+                <p className="text-sm font-bold text-slate-800 mt-0.5">{value}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+          {/* Action panel */}
+          <div className="px-5 py-4 border-b border-slate-100">
+            <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide mb-3">Record Transaction</p>
+
+            {/* Action tabs */}
+            <div className="flex gap-1 mb-3 bg-slate-100 rounded-lg p-0.5">
+              {([
+                { id: "add_stock",     label: "Add Stock" },
+                { id: "adjust_price", label: "Update Price" },
+              ] as const).map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => { setActionTab(t.id); setInputValue(""); }}
+                  className={`flex-1 text-xs font-medium py-1.5 rounded-md transition-colors ${actionTab === t.id ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Input */}
+            <div className="mb-3">
+              <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wide mb-1 block">
+                {actionTab === "add_stock" ? `Quantity to Add (${item.unit})` : "New Unit Price (₹)"}
+              </label>
+              <input
+                type="number"
+                min={0}
+                step={actionTab === "add_stock" ? 0.5 : 1}
+                placeholder={actionTab === "add_stock" ? "e.g. 10" : "e.g. 300"}
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-brand-navy-400"
+              />
+              {actionTab === "add_stock" && inputValue && (
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Stock will update: {item.currentStock} → <span className="font-semibold text-slate-600">{item.currentStock + (parseFloat(inputValue) || 0)}</span> {item.unit}
+                </p>
+              )}
+              {actionTab === "adjust_price" && inputValue && (
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Price will update: {fmtRupee(item.unitCost)} → <span className="font-semibold text-slate-600">{fmtRupee(parseFloat(inputValue) || 0)}</span>
+                </p>
+              )}
+            </div>
+
+            {/* Comment — required if no file */}
+            <div className="mb-3">
+              <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wide mb-1 block flex items-center gap-1">
+                <MessageSquare className="w-2.5 h-2.5" />
+                Comment {!fileUploaded && <span className="text-red-400">*</span>}
+              </label>
+              <textarea
+                rows={2}
+                placeholder="Reason for this change e.g. 'Monthly restock from AutoZone'…"
+                value={comment}
+                onChange={(e) => setComment(e.target.value)}
+                className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-brand-navy-400 resize-none"
+              />
+            </div>
+
+            {/* File upload */}
+            <div className="mb-3">
+              <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wide mb-1 block flex items-center gap-1">
+                <FileText className="w-2.5 h-2.5" />
+                Bill / Supporting Document {!comment.trim() && <span className="text-red-400">*</span>}
+              </label>
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/*,.pdf"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) { setFileUploaded(true); setFileName(f.name); }
+                }}
+              />
+              {fileUploaded ? (
+                <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+                  <FileText className="w-3.5 h-3.5 text-green-600 shrink-0" />
+                  <span className="text-xs text-green-700 font-medium flex-1 truncate">{fileName}</span>
+                  <button onClick={() => { setFileUploaded(false); setFileName(""); }} className="text-green-400 hover:text-red-400 transition-colors shrink-0">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => fileRef.current?.click()}
+                  className="w-full border-2 border-dashed border-slate-200 rounded-lg px-3 py-2.5 text-center text-[11px] text-slate-400 hover:border-brand-navy-300 hover:text-brand-navy-600 transition-colors"
+                >
+                  <Upload className="w-4 h-4 mx-auto mb-0.5 opacity-40" />
+                  Upload bill or receipt (image / PDF)
+                </button>
+              )}
+              {!comment.trim() && !fileUploaded && (
+                <p className="text-[10px] text-red-400 mt-1">A comment or file is required to record a transaction.</p>
+              )}
+            </div>
+
+            <button
+              onClick={handleSubmit}
+              disabled={!canSubmit}
+              className={`w-full py-2 text-sm font-medium rounded-lg transition-colors ${canSubmit ? "bg-brand-navy-800 text-white hover:bg-brand-navy-700" : "bg-slate-100 text-slate-400 cursor-not-allowed"}`}
+            >
+              {actionTab === "add_stock" ? "Add Stock" : "Update Price"}
+            </button>
+          </div>
+
+          {/* Audit trail */}
+          <div className="px-5 py-4">
+            <div className="flex items-center gap-2 mb-3">
+              <History className="w-3.5 h-3.5 text-slate-400" />
+              <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Audit Trail</p>
+              <span className="text-[10px] text-slate-400 ml-auto">{itemAudits.length} entries</span>
+            </div>
+
+            {itemAudits.length === 0 ? (
+              <p className="text-[11px] text-slate-400 text-center py-6">No history yet. Transactions will appear here.</p>
+            ) : (
+              <div className="space-y-2">
+                {itemAudits.map((entry) => {
+                  const cfg = AUDIT_CONFIG[entry.type];
+                  const Icon = cfg.icon;
+                  return (
+                    <div key={entry.id} className="bg-slate-50 border border-slate-100 rounded-lg p-3">
+                      <div className="flex items-start justify-between gap-2 mb-1.5">
+                        <span className={`flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded border ${cfg.color}`}>
+                          <Icon className="w-2.5 h-2.5" />
+                          {cfg.label}
+                        </span>
+                        <span className="text-[10px] text-slate-400 whitespace-nowrap">{fmtTimestamp(entry.timestamp)}</span>
+                      </div>
+
+                      {/* Value change */}
+                      <div className="flex items-center gap-1.5 mb-1.5 text-[11px]">
+                        <span className="text-slate-400 line-through">
+                          {entry.type === "price_changed" ? fmtRupee(entry.oldValue) : `${entry.oldValue} ${item.unit}`}
+                        </span>
+                        <ChevronRight className="w-3 h-3 text-slate-300" />
+                        <span className="font-semibold text-slate-700">
+                          {entry.type === "price_changed" ? fmtRupee(entry.newValue) : `${entry.newValue} ${item.unit}`}
+                        </span>
+                        {entry.type !== "price_changed" && (
+                          <span className={`ml-1 font-semibold ${entry.newValue > entry.oldValue ? "text-green-600" : "text-red-500"}`}>
+                            ({entry.newValue > entry.oldValue ? "+" : ""}{entry.newValue - entry.oldValue})
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Comment */}
+                      <p className="text-[11px] text-slate-600 mb-1.5">"{entry.comment}"</p>
+
+                      {/* Meta */}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[10px] text-slate-400">by {entry.by}</span>
+                        {entry.hasFile && (
+                          <button
+                            onClick={() => toast.info(`View file: ${entry.fileName} (mock)`)}
+                            className="flex items-center gap-1 text-[10px] text-brand-navy-600 hover:underline"
+                          >
+                            <FileText className="w-2.5 h-2.5" />
+                            {entry.fileName}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ── Add Purchase Drawer ───────────────────────────────────────────
 
@@ -263,8 +569,8 @@ export default function InventoryPage() {
   // Local stock state (editable in wireframe)
   const [stock, setStock] = useState<InventoryItem[]>(inventoryItems);
   const [orders, setOrders] = useState(purchaseOrders);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editQty, setEditQty] = useState("");
+  const [openItem, setOpenItem] = useState<InventoryItem | null>(null);
+  const [allAudits, setAllAudits] = useState<AuditEntry[]>(SEED_AUDITS);
 
   const lowStockCount = stock.filter((i) => i.currentStock <= i.minStock && i.currentStock > 0).length;
   const outCount = stock.filter((i) => i.currentStock === 0).length;
@@ -278,10 +584,35 @@ export default function InventoryPage() {
     return true;
   });
 
-  function saveStockEdit(id: string) {
-    setStock((s) => s.map((i) => i.id === id ? { ...i, currentStock: parseInt(editQty) || 0 } : i));
-    setEditingId(null);
-    toast.success("Stock updated");
+  function handleItemUpdate(itemId: string, type: AuditType, oldVal: number, newVal: number, comment: string, hasFile: boolean, fileName?: string) {
+    // Update stock or price
+    setStock((s) => s.map((i) => {
+      if (i.id !== itemId) return i;
+      return type === "price_changed"
+        ? { ...i, unitCost: newVal, lastUpdated: TODAY }
+        : { ...i, currentStock: newVal, lastUpdated: TODAY };
+    }));
+    // Add audit entry
+    const entry: AuditEntry = {
+      id: `a${Date.now()}`,
+      itemId,
+      type,
+      oldValue: oldVal,
+      newValue: newVal,
+      comment,
+      hasFile,
+      fileName,
+      by: "Rohan M.",
+      timestamp: new Date().toISOString(),
+    };
+    setAllAudits((a) => [entry, ...a]);
+    // Keep drawer open with updated item
+    setOpenItem((prev) => {
+      if (!prev || prev.id !== itemId) return prev;
+      return type === "price_changed"
+        ? { ...prev, unitCost: newVal, lastUpdated: TODAY }
+        : { ...prev, currentStock: newVal, lastUpdated: TODAY };
+    });
   }
 
   function handleSavePurchase(vendor: string, date: string, lines: DraftLine[], hasBill: boolean) {
@@ -318,6 +649,14 @@ export default function InventoryPage() {
 
   return (
     <div className="p-4 max-w-5xl">
+      {openItem && (
+        <ItemDetailDrawer
+          item={openItem}
+          audits={allAudits}
+          onClose={() => setOpenItem(null)}
+          onUpdate={handleItemUpdate}
+        />
+      )}
       {showDrawer && (
         <AddPurchaseDrawer
           items={stock}
@@ -434,34 +773,19 @@ export default function InventoryPage() {
               </thead>
               <tbody>
                 {filteredStock.map((item) => (
-                  <tr key={item.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors">
+                  <tr
+                    key={item.id}
+                    onClick={() => setOpenItem(item)}
+                    className="border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors cursor-pointer group"
+                  >
                     <td className="px-3 py-2.5">
-                      <p className="font-medium text-slate-800 text-[13px]">{item.name}</p>
-                      <p className="text-[10px] text-slate-400">Last updated {fmtDate(item.lastUpdated)}</p>
+                      <p className="font-medium text-slate-800 text-[13px] group-hover:text-brand-navy-700 transition-colors">{item.name}</p>
+                      <p className="text-[10px] text-slate-400">Updated {fmtDate(item.lastUpdated)} · {allAudits.filter((a) => a.itemId === item.id).length} audit entries</p>
                     </td>
                     <td className="px-3 py-2.5 text-[11px] text-slate-500">{item.category}</td>
                     <td className="px-3 py-2.5 text-[11px] text-slate-500">{item.unit}</td>
                     <td className="px-3 py-2.5">
-                      {editingId === item.id ? (
-                        <div className="flex items-center gap-1.5">
-                          <input
-                            autoFocus
-                            type="number"
-                            min={0}
-                            value={editQty}
-                            onChange={(e) => setEditQty(e.target.value)}
-                            className="w-16 text-sm border border-brand-navy-300 rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-brand-navy-400 text-center"
-                          />
-                          <button onClick={() => saveStockEdit(item.id)} className="w-6 h-6 flex items-center justify-center rounded bg-green-100 text-green-700 hover:bg-green-200 transition-colors">
-                            <Check className="w-3.5 h-3.5" />
-                          </button>
-                          <button onClick={() => setEditingId(null)} className="w-6 h-6 flex items-center justify-center rounded bg-slate-100 text-slate-500 hover:bg-slate-200 transition-colors">
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      ) : (
-                        <span className="text-sm font-semibold text-slate-700 tabular-nums">{item.currentStock}</span>
-                      )}
+                      <span className="text-sm font-semibold text-slate-700 tabular-nums">{item.currentStock}</span>
                     </td>
                     <td className="px-3 py-2.5 text-[12px] text-slate-500 tabular-nums">{item.minStock}</td>
                     <td className="px-3 py-2.5 text-[12px] text-slate-600 tabular-nums">{fmtRupee(item.unitCost)}</td>
@@ -471,12 +795,9 @@ export default function InventoryPage() {
                       </span>
                     </td>
                     <td className="px-3 py-2.5">
-                      <button
-                        onClick={() => { setEditingId(item.id); setEditQty(String(item.currentStock)); }}
-                        className="text-[10px] font-medium text-brand-navy-600 hover:underline"
-                      >
-                        Adjust
-                      </button>
+                      <span className="text-[10px] font-medium text-brand-navy-500 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                        Open <ChevronRight className="w-3 h-3" />
+                      </span>
                     </td>
                   </tr>
                 ))}
