@@ -24,8 +24,30 @@ function addDays(iso: string, n: number) {
   return d.toISOString().slice(0, 10);
 }
 
-function getLast30(anchor: string): string[] {
-  return Array.from({ length: 30 }, (_, i) => addDays(anchor, -(29 - i)));
+function getDaysInMonth(yearMonth: string): string[] {
+  const [y, m] = yearMonth.split("-").map(Number);
+  const count = new Date(y, m, 0).getDate();
+  return Array.from({ length: count }, (_, i) => {
+    const day = String(i + 1).padStart(2, "0");
+    return `${yearMonth}-${day}`;
+  });
+}
+
+function getFirstWeekday(yearMonth: string): number {
+  const [y, m] = yearMonth.split("-").map(Number);
+  const day = new Date(y, m - 1, 1).getDay(); // 0=Sun
+  return (day + 6) % 7; // Mon=0 … Sun=6
+}
+
+function addMonths(ym: string, n: number): string {
+  const [y, m] = ym.split("-").map(Number);
+  const d = new Date(y, m - 1 + n, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function fmtYearMonth(ym: string): string {
+  const [y, m] = ym.split("-").map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString("en-IN", { month: "long", year: "numeric" });
 }
 
 const STATUS_CONFIG: Record<AttendanceStatus, { label: string; short: string; color: string; dot: string; icon: React.ElementType }> = {
@@ -38,6 +60,7 @@ const STATUS_CONFIG: Record<AttendanceStatus, { label: string; short: string; co
 export default function AttendancePage() {
   const [viewDate, setViewDate] = useState(TODAY);
   const [tab, setTab] = useState<"daily" | "monthly">("daily");
+  const [monthAnchor, setMonthAnchor] = useState("2026-04");
 
   // Local overrides for daily view edits
   const [overrides, setOverrides] = useState<Record<string, AttendanceStatus>>({});
@@ -70,7 +93,6 @@ export default function AttendancePage() {
     {} as Record<AttendanceStatus, number>
   );
 
-  const days30 = getLast30(TODAY);
 
   return (
     <div className="p-4 max-w-5xl">
@@ -222,12 +244,42 @@ export default function AttendancePage() {
       {/* ── Monthly summary view ─────────────────────────────── */}
       {tab === "monthly" && (
         <div>
-          <p className="text-xs text-slate-500 mb-4">Last 30 days · {new Date("2026-03-30").toLocaleDateString("en-IN", { day: "numeric", month: "short" })} – {new Date(TODAY).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</p>
+          {/* Month picker */}
+          <div className="flex items-center gap-3 mb-5">
+            <button
+              onClick={() => setMonthAnchor(addMonths(monthAnchor, -1))}
+              className="w-7 h-7 flex items-center justify-center rounded border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <div className="flex items-center gap-2">
+              <Calendar className="w-3.5 h-3.5 text-slate-400" />
+              <span className="text-sm font-semibold text-slate-700">{fmtYearMonth(monthAnchor)}</span>
+            </div>
+            <button
+              onClick={() => { if (monthAnchor < "2026-04") setMonthAnchor(addMonths(monthAnchor, 1)); }}
+              className={`w-7 h-7 flex items-center justify-center rounded border border-slate-200 transition-colors ${monthAnchor >= "2026-04" ? "text-slate-300 cursor-not-allowed" : "text-slate-500 hover:bg-slate-50"}`}
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+            {/* Legend */}
+            <div className="flex gap-3 ml-auto">
+              {(["present", "half_day", "overtime", "absent"] as AttendanceStatus[]).map((s) => (
+                <div key={s} className="flex items-center gap-1 text-[10px] text-slate-500">
+                  <span className={`w-2.5 h-2.5 rounded-sm ${STATUS_CONFIG[s].dot}`} />
+                  {STATUS_CONFIG[s].label}
+                </div>
+              ))}
+            </div>
+          </div>
 
           <div className="space-y-4">
             {mechanics.map((m) => {
-              const records = days30.map((d) => ({
+              const daysInMonth = getDaysInMonth(monthAnchor);
+              const firstWeekday = getFirstWeekday(monthAnchor);
+              const records = daysInMonth.map((d) => ({
                 date: d,
+                day: parseInt(d.split("-")[2]),
                 status: (attendanceRecords.find((r) => r.mechanicId === m.id && r.date === d)?.status ?? "absent") as AttendanceStatus,
               }));
               const presentDays = records.filter((r) => r.status === "present" || r.status === "overtime").length;
@@ -235,11 +287,12 @@ export default function AttendancePage() {
               const absentDays = records.filter((r) => r.status === "absent").length;
               const otDays = records.filter((r) => r.status === "overtime").length;
               const totalOtHours = attendanceRecords
-                .filter((r) => r.mechanicId === m.id && r.status === "overtime")
+                .filter((r) => r.mechanicId === m.id && r.date.startsWith(monthAnchor) && r.status === "overtime")
                 .reduce((s, r) => s + (r.overtimeHours ?? 0), 0);
 
               return (
                 <div key={m.id} className="bg-white border border-slate-200 rounded-xl p-4">
+                  {/* Mechanic header + counts */}
                   <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
                     <div className="flex items-center gap-2.5">
                       <div className="w-8 h-8 rounded-full bg-brand-navy-100 flex items-center justify-center text-[11px] font-bold text-brand-navy-700">
@@ -250,36 +303,47 @@ export default function AttendancePage() {
                         <p className="text-[10px] text-slate-400">{m.employmentType}</p>
                       </div>
                     </div>
-                    <div className="flex gap-3 text-[11px]">
-                      <span className="text-green-700 font-semibold">{presentDays}P</span>
-                      <span className="text-amber-600 font-semibold">{halfDays}H</span>
-                      <span className="text-blue-600 font-semibold">{otDays > 0 ? `${otDays}OT (${totalOtHours}h)` : "0OT"}</span>
-                      <span className="text-red-600 font-semibold">{absentDays}A</span>
+                    <div className="flex gap-2 flex-wrap">
+                      <span className="flex items-center gap-1 text-[11px] font-semibold text-green-700 bg-green-50 px-2 py-0.5 rounded-full border border-green-200">
+                        <CheckCircle2 className="w-3 h-3" /> {presentDays} Present
+                      </span>
+                      <span className="flex items-center gap-1 text-[11px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+                        <Clock className="w-3 h-3" /> {halfDays} Half
+                      </span>
+                      <span className="flex items-center gap-1 text-[11px] font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
+                        <AlertCircle className="w-3 h-3" /> {otDays} OT{totalOtHours > 0 ? ` (${totalOtHours}h)` : ""}
+                      </span>
+                      <span className="flex items-center gap-1 text-[11px] font-semibold text-red-700 bg-red-50 px-2 py-0.5 rounded-full border border-red-200">
+                        <XCircle className="w-3 h-3" /> {absentDays} Absent
+                      </span>
                     </div>
                   </div>
 
-                  {/* 30-day dot grid */}
-                  <div className="flex gap-1 flex-wrap">
-                    {records.map(({ date, status }) => {
+                  {/* Calendar grid */}
+                  <div className="grid grid-cols-7 gap-1">
+                    {/* Day headers */}
+                    {["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map((d) => (
+                      <div key={d} className="text-center text-[9px] font-semibold text-slate-400 pb-1">{d}</div>
+                    ))}
+                    {/* Empty cells before month start */}
+                    {Array.from({ length: firstWeekday }).map((_, i) => (
+                      <div key={`e${i}`} />
+                    ))}
+                    {/* Day cells */}
+                    {records.map(({ date, day, status }) => {
                       const cfg = STATUS_CONFIG[status];
+                      const isToday = date === TODAY;
                       return (
                         <div
                           key={date}
                           title={`${new Date(date).toLocaleDateString("en-IN", { day: "numeric", month: "short" })} · ${cfg.label}`}
-                          className={`w-5 h-5 rounded-sm ${cfg.dot} opacity-80`}
-                        />
+                          className={`relative aspect-square rounded flex flex-col items-center justify-center ${cfg.dot} ${isToday ? "ring-2 ring-white ring-offset-1 ring-offset-slate-300" : ""}`}
+                        >
+                          <span className="text-[11px] font-bold text-white leading-none">{day}</span>
+                          <span className="text-[8px] text-white/80 font-medium leading-none mt-0.5">{cfg.short}</span>
+                        </div>
                       );
                     })}
-                  </div>
-
-                  {/* Legend */}
-                  <div className="flex gap-3 mt-2">
-                    {(["present", "half_day", "overtime", "absent"] as AttendanceStatus[]).map((s) => (
-                      <div key={s} className="flex items-center gap-1 text-[9px] text-slate-400">
-                        <span className={`w-2 h-2 rounded-sm ${STATUS_CONFIG[s].dot}`} />
-                        {STATUS_CONFIG[s].label}
-                      </div>
-                    ))}
                   </div>
                 </div>
               );
