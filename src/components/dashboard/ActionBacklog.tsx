@@ -30,6 +30,13 @@ function FollowUpsTab() {
     <div className="space-y-2">
       {allTodayFollowUps.map((fu) => {
         const overdue = isOverdue(fu.dueDate);
+        const href = fu.leadId
+          ? `/leads/${fu.leadId}`
+          : fu.serviceRequestId
+          ? `/services/${fu.serviceRequestId}`
+          : fu.customerId
+          ? `/customers/${fu.customerId}`
+          : null;
         return (
           <div
             key={fu.id}
@@ -75,6 +82,14 @@ function FollowUpsTab() {
               >
                 <CalendarPlus className="w-3 h-3" /> Reschedule
               </button>
+              {href && (
+                <Link
+                  href={href}
+                  className="flex items-center gap-1 text-[10px] font-medium text-slate-500 hover:text-brand-navy-600 hover:bg-brand-navy-50 px-1.5 py-1 rounded transition-colors"
+                >
+                  View <ArrowRight className="w-3 h-3" />
+                </Link>
+              )}
               <button
                 onClick={() => toast.success("Marked done")}
                 className="flex items-center gap-1 text-[10px] font-medium text-slate-500 hover:text-green-600 hover:bg-green-50 px-1.5 py-1 rounded ml-auto transition-colors"
@@ -91,6 +106,9 @@ function FollowUpsTab() {
           </div>
         );
       })}
+      <Link href="/followups" className="flex items-center justify-center gap-1 text-[10px] font-medium text-slate-400 hover:text-brand-navy-600 py-1 transition-colors">
+        See all follow-ups <ArrowRight className="w-3 h-3" />
+      </Link>
     </div>
   );
 }
@@ -159,6 +177,9 @@ function NewLeadsTab() {
           </div>
         </div>
       ))}
+      <Link href="/leads" className="flex items-center justify-center gap-1 text-[10px] font-medium text-slate-400 hover:text-brand-navy-600 py-1 transition-colors">
+        See all leads <ArrowRight className="w-3 h-3" />
+      </Link>
     </div>
   );
 }
@@ -167,29 +188,42 @@ function NewLeadsTab() {
 function FFPoolTab() {
   return (
     <div className="space-y-2">
-      {ffPoolFollowUps.map((fu) => (
-        <div key={fu.id} className="bg-white border border-slate-200 rounded-lg p-3">
-          <div className="flex items-start justify-between gap-2 mb-1">
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-slate-800 truncate">{fu.customerName}</p>
-              {fu.vehicleLabel && (
-                <p className="text-[11px] text-slate-500 truncate">{fu.vehicleLabel}</p>
+      {ffPoolFollowUps.map((fu) => {
+        const href = fu.leadId ? `/leads/${fu.leadId}` : fu.customerId ? `/customers/${fu.customerId}` : null;
+        return (
+          <div key={fu.id} className="bg-white border border-slate-200 rounded-lg p-3">
+            <div className="flex items-start justify-between gap-2 mb-1">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-slate-800 truncate">{fu.customerName}</p>
+                {fu.vehicleLabel && (
+                  <p className="text-[11px] text-slate-500 truncate">{fu.vehicleLabel}</p>
+                )}
+              </div>
+              <span className="text-[10px] text-slate-400 whitespace-nowrap">
+                <Clock className="w-3 h-3 inline mr-0.5" />
+                Flexible
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-600 mb-2 line-clamp-2">{fu.reason}</p>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => toast.success("Opening scheduling dialog (mock)")}
+                className="flex items-center gap-1 text-[10px] font-medium text-brand-navy-600 hover:bg-brand-navy-50 px-2 py-1 rounded border border-brand-navy-200 transition-colors"
+              >
+                <CalendarPlus className="w-3 h-3" /> Try to schedule
+              </button>
+              {href && (
+                <Link href={href} className="flex items-center gap-1 text-[10px] font-medium text-slate-500 hover:text-brand-navy-600 hover:bg-brand-navy-50 px-1.5 py-1 rounded transition-colors ml-auto">
+                  View <ArrowRight className="w-3 h-3" />
+                </Link>
               )}
             </div>
-            <span className="text-[10px] text-slate-400 whitespace-nowrap">
-              <Clock className="w-3 h-3 inline mr-0.5" />
-              Flexible
-            </span>
           </div>
-          <p className="text-[11px] text-slate-600 mb-2 line-clamp-2">{fu.reason}</p>
-          <button
-            onClick={() => toast.success("Opening scheduling dialog (mock)")}
-            className="flex items-center gap-1 text-[10px] font-medium text-brand-navy-600 hover:bg-brand-navy-50 px-2 py-1 rounded border border-brand-navy-200 transition-colors"
-          >
-            <CalendarPlus className="w-3 h-3" /> Try to schedule
-          </button>
-        </div>
-      ))}
+        );
+      })}
+      <Link href="/followups" className="flex items-center justify-center gap-1 text-[10px] font-medium text-slate-400 hover:text-brand-navy-600 py-1 transition-colors">
+        See all follow-ups <ArrowRight className="w-3 h-3" />
+      </Link>
     </div>
   );
 }
@@ -216,7 +250,7 @@ function AwaitingApprovalTab() {
           const customer = customers.find((c) => c.id === sr.customerId);
           const vehicle = vehicles.find((v) => v.id === sr.vehicleId);
           return (
-            <div key={ao.id} className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+            <div key={ao.id} className="bg-amber-50 border border-amber-200 rounded-lg p-3 relative">
               <div className="flex items-start justify-between gap-2 mb-1.5">
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-slate-800 truncate">{customer?.name}</p>
@@ -224,10 +258,15 @@ function AwaitingApprovalTab() {
                     {vehicle ? `${vehicle.make} ${vehicle.model}` : "Vehicle"}
                   </p>
                 </div>
-                <span className="text-[10px] text-amber-700 font-medium whitespace-nowrap">
-                  <Flame className="w-3 h-3 inline mr-0.5" />
-                  Approval needed
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-amber-700 font-medium whitespace-nowrap">
+                    <Flame className="w-3 h-3 inline mr-0.5" />
+                    Approval needed
+                  </span>
+                  <Link href={`/services/${sr.id}`} className="text-[10px] font-medium text-slate-500 hover:text-brand-navy-600 flex items-center gap-0.5">
+                    View SR <ArrowRight className="w-3 h-3" />
+                  </Link>
+                </div>
               </div>
 
               <div className="bg-white border border-amber-200 rounded p-2 mb-2">
@@ -267,6 +306,9 @@ function AwaitingApprovalTab() {
           );
         })
       )}
+      <Link href="/services?status=awaiting_approval" className="flex items-center justify-center gap-1 text-[10px] font-medium text-slate-400 hover:text-brand-navy-600 py-1 transition-colors">
+        See all approvals <ArrowRight className="w-3 h-3" />
+      </Link>
     </div>
   );
 }
