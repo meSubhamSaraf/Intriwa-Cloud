@@ -22,6 +22,8 @@ import {
   CalendarCheck,
   Package,
   ShieldCheck,
+  DollarSign,
+  Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -42,6 +44,8 @@ const navItems = [
   { href: "/followups", label: "Follow-ups", icon: Clock },
   { href: "/inventory", label: "Inventory", icon: Package },
   { href: "/invoices", label: "Invoices", icon: Receipt },
+  { href: "/payouts", label: "Payouts", icon: DollarSign },
+  { href: "/incentives", label: "Incentives", icon: Zap },
   { href: "/subscriptions", label: "Subscriptions", icon: CreditCard },
   { href: "/dispatch", label: "Dispatch", icon: Route },
   { href: "/field", label: "Field View", icon: Smartphone },

@@ -3,12 +3,13 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Plus, Search, Phone, ArrowRight, Star, Briefcase, UserCog } from "lucide-react";
+import { Plus, Search, Phone, ArrowRight, Star, Briefcase, UserCog, X } from "lucide-react";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { mechanics, Mechanic, MechanicStatus } from "@/lib/mock-data/mechanics";
 import { serviceRequests } from "@/lib/mock-data/serviceRequests";
 import { customers } from "@/lib/mock-data/customers";
 import { vehicles } from "@/lib/mock-data/vehicles";
+import { toast } from "sonner";
 
 // ── Helpers ───────────────────────────────────────────────────────
 
@@ -179,12 +180,152 @@ function Stat({ label, value, sub, icon }: { label: string; value: string; sub: 
   );
 }
 
+// ── Add Mechanic Modal ────────────────────────────────────────────
+
+const BLANK = {
+  name: "", phone: "", employmentType: "FULL_TIME",
+  payoutConfigType: "PERCENT_OF_ITEM", salaryAmount: "", payoutRate: "",
+};
+
+function AddMechanicModal({ onClose, onCreated }: { onClose: () => void; onCreated: (m: { id: string; name: string }) => void }) {
+  const [form, setForm] = useState(BLANK);
+  const [saving, setSaving] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    const body: Record<string, unknown> = {
+      name: form.name.trim(),
+      phone: form.phone.trim(),
+      employmentType: form.employmentType,
+      payoutConfigType: form.payoutConfigType,
+    };
+    if (form.salaryAmount) body.salaryAmount = Number(form.salaryAmount);
+    if (form.payoutRate)   body.payoutRate   = Number(form.payoutRate) / 100; // store as decimal e.g. 0.40
+
+    const res = await fetch("/api/mechanics", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    setSaving(false);
+    if (res.ok) {
+      const created = await res.json();
+      toast.success(`${created.name} added`);
+      onCreated(created);
+      onClose();
+    } else {
+      const err = await res.json().catch(() => ({}));
+      toast.error(err.error ?? "Failed to add mechanic");
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="font-semibold text-slate-800">Add Mechanic</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X className="w-4 h-4" /></button>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1.5">Full name</label>
+            <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+              placeholder="e.g. Ravi Kumar" required
+              className="w-full h-10 px-3 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-brand-navy-400" />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1.5">Phone number</label>
+            <input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
+              placeholder="e.g. 9876543210" required
+              className="w-full h-10 px-3 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-brand-navy-400" />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1.5">Employment type</label>
+              <select value={form.employmentType} onChange={e => setForm(f => ({ ...f, employmentType: e.target.value }))}
+                className="w-full h-10 px-3 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-brand-navy-400">
+                <option value="FULL_TIME">Full Time</option>
+                <option value="PART_TIME">Part Time</option>
+                <option value="AFFILIATE">Affiliate</option>
+                <option value="FREELANCE">Freelance</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1.5">Pay structure</label>
+              <select value={form.payoutConfigType} onChange={e => setForm(f => ({ ...f, payoutConfigType: e.target.value }))}
+                className="w-full h-10 px-3 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-brand-navy-400">
+                <option value="PERCENT_OF_ITEM">% of item value</option>
+                <option value="FIXED_PER_ITEM">Fixed ₹ per item</option>
+                <option value="SALARY">Monthly salary</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Rate field — label and hint change per pay structure */}
+          {form.payoutConfigType === "PERCENT_OF_ITEM" && (
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1.5">
+                Cut per item (%)
+              </label>
+              <input type="number" value={form.payoutRate} onChange={e => setForm(f => ({ ...f, payoutRate: e.target.value }))}
+                placeholder="e.g. 40" min={0} max={100} step={0.5} required
+                className="w-full h-10 px-3 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-brand-navy-400" />
+              <p className="text-[10px] text-slate-400 mt-1">
+                Mechanic earns this % of each service item they are assigned to.
+              </p>
+            </div>
+          )}
+
+          {form.payoutConfigType === "FIXED_PER_ITEM" && (
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1.5">
+                Fixed amount per item (₹)
+              </label>
+              <input type="number" value={form.payoutRate} onChange={e => setForm(f => ({ ...f, payoutRate: e.target.value }))}
+                placeholder="e.g. 200" min={0} step={1} required
+                className="w-full h-10 px-3 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-brand-navy-400" />
+              <p className="text-[10px] text-slate-400 mt-1">
+                Same flat amount regardless of item price.
+              </p>
+            </div>
+          )}
+
+          {form.payoutConfigType === "SALARY" && (
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1.5">Monthly salary (₹)</label>
+              <input type="number" value={form.salaryAmount} onChange={e => setForm(f => ({ ...f, salaryAmount: e.target.value }))}
+                placeholder="e.g. 15000" min={0} required
+                className="w-full h-10 px-3 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-brand-navy-400" />
+            </div>
+          )}
+
+          <div className="flex gap-2 pt-1">
+            <button type="button" onClick={onClose}
+              className="flex-1 h-10 border border-slate-200 text-sm text-slate-600 rounded-lg hover:bg-slate-50">
+              Cancel
+            </button>
+            <button type="submit" disabled={saving}
+              className="flex-1 h-10 bg-brand-navy-800 text-white text-sm font-medium rounded-lg hover:bg-brand-navy-700 disabled:opacity-60">
+              {saving ? "Adding…" : "Add Mechanic"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────
 
 export default function MechanicsPage() {
+  const router = useRouter();
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<MechanicStatus | "all">("all");
   const [skillFilters, setSkillFilters] = useState<Skill[]>([]);
+  const [showAdd, setShowAdd] = useState(false);
 
   function toggleSkill(skill: Skill) {
     setSkillFilters((prev) =>
@@ -218,7 +359,7 @@ export default function MechanicsPage() {
           </p>
         </div>
         <button
-          onClick={() => {}}
+          onClick={() => setShowAdd(true)}
           className="flex items-center gap-1.5 text-sm font-medium bg-brand-navy-800 text-white hover:bg-brand-navy-700 px-3 py-2 rounded-md transition-colors"
         >
           <Plus className="w-4 h-4" /> Add Mechanic
@@ -292,6 +433,13 @@ export default function MechanicsPage() {
           icon={UserCog}
           title="No mechanics match your filters"
           description="Try adjusting your search, status, or skill filters."
+        />
+      )}
+
+      {showAdd && (
+        <AddMechanicModal
+          onClose={() => setShowAdd(false)}
+          onCreated={(m) => router.push(`/mechanics/${m.id}`)}
         />
       )}
     </div>

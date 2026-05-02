@@ -6,7 +6,11 @@ type StatusConfig = {
 };
 
 const statusMap: Record<string, StatusConfig> = {
-  // Service request statuses
+  // Service request statuses (DB enum — normalised to lowercase)
+  open:               { label: "Open",              className: "text-blue-700 bg-blue-50 border-blue-200" },
+  waiting_parts:      { label: "Waiting Parts",     className: "text-amber-700 bg-amber-50 border-amber-200" },
+  ready:              { label: "Ready",             className: "text-green-700 bg-green-50 border-green-200" },
+  closed:             { label: "Closed",            className: "text-slate-600 bg-slate-100 border-slate-200" },
   scheduled:          { label: "Scheduled",         className: "text-blue-700 bg-blue-50 border-blue-200" },
   confirmed:          { label: "Confirmed",          className: "text-blue-700 bg-blue-50 border-blue-200" },
   assigned:           { label: "Assigned",           className: "text-blue-700 bg-blue-50 border-blue-200" },

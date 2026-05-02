@@ -1,17 +1,31 @@
 "use client";
 
-import { useState, useMemo, Suspense } from "react";
+import { useState, useEffect, useMemo, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft, ArrowRight, Check, Car, User, Wrench, Calendar,
   HardHat, FileText, Search, Plus, Clock, AlertTriangle, X, Package, MapPin,
 } from "lucide-react";
 import { toast } from "sonner";
-import { customers } from "@/lib/mock-data/customers";
-import { vehicles, Vehicle } from "@/lib/mock-data/vehicles";
 import { mechanics } from "@/lib/mock-data/mechanics";
 import { serviceCatalog, ServiceCatalogItem, ServiceCategory } from "@/lib/mock-data/serviceCatalog";
-import { serviceRequests } from "@/lib/mock-data/serviceRequests";
+
+// ── Real data types ───────────────────────────────────────────────
+
+type RealVehicle = {
+  id: string; make: string; model: string; year: number | null;
+  regNumber: string | null; type: string; fuelType: string; color: string | null;
+};
+
+type RealCustomer = {
+  id: string; name: string; phone: string;
+  email: string | null; address: string | null;
+  vehicles: RealVehicle[];
+};
+
+function normalizeVehicleType(dbType: string): "4W" | "2W" {
+  return dbType === "TWO_WHEELER" ? "2W" : "4W";
+}
 
 // ── Types ─────────────────────────────────────────────────────────
 
@@ -33,6 +47,8 @@ interface Part {
 
 interface FormState {
   customerId: string;
+  selectedCustomer: RealCustomer | null;
+  customerVehicles: RealVehicle[];
   vehicleId: string;
   newVehicle: { make: string; model: string; year: string; reg: string; type: "4W" | "2W"; fuel: string } | null;
   issueDescription: string;
@@ -57,6 +73,8 @@ interface FormState {
 
 const INITIAL: FormState = {
   customerId: "",
+  selectedCustomer: null,
+  customerVehicles: [],
   vehicleId: "",
   newVehicle: null,
   issueDescription: "",
@@ -79,7 +97,7 @@ const INITIAL: FormState = {
   groupMechanics: {},
 };
 
-function extractNeighbourhood(address?: string): string {
+function extractNeighbourhood(address?: string | null): string {
   if (!address) return "";
   const AREAS = ["Whitefield","Marathahalli","Indiranagar","Koramangala","JP Nagar","HSR Layout",
     "Electronic City","Kanakapura","Subramanyapura","Bannerghatta","Hebbal","Malleswaram",
@@ -167,20 +185,23 @@ const textareaCls = "w-full px-3 py-2 text-sm border border-slate-200 rounded-md
 
 // ── Step 1: Customer ──────────────────────────────────────────────
 
-function CustomerStep({ form, setForm }: { form: FormState; setForm: (f: FormState) => void }) {
+function CustomerStep({ form, setForm, allCustomers }: {
+  form: FormState;
+  setForm: (f: FormState) => void;
+  allCustomers: RealCustomer[];
+}) {
   const [query, setQuery] = useState("");
-  const selected = customers.find((c) => c.id === form.customerId);
+  const selected = form.selectedCustomer;
 
   const results = useMemo(() => {
     if (!query) return [];
     const q = query.toLowerCase();
-    return customers.filter(
+    return allCustomers.filter(
       (c) => c.name.toLowerCase().includes(q) || c.phone.includes(q)
     ).slice(0, 6);
-  }, [query]);
+  }, [query, allCustomers]);
 
   if (selected) {
-    const cvehicles = vehicles.filter((v) => v.customerId === selected.id);
     return (
       <div className="space-y-3">
         <div className="flex items-center justify-between p-3 bg-brand-navy-50 border border-brand-navy-200 rounded-lg">
@@ -195,9 +216,9 @@ function CustomerStep({ form, setForm }: { form: FormState; setForm: (f: FormSta
             )}
           </div>
           <div className="flex items-center gap-3">
-            <span className="text-[11px] text-slate-500">{cvehicles.length} vehicle{cvehicles.length !== 1 ? "s" : ""}</span>
+            <span className="text-[11px] text-slate-500">{selected.vehicles.length} vehicle{selected.vehicles.length !== 1 ? "s" : ""}</span>
             <button
-              onClick={() => setForm({ ...form, customerId: "", vehicleId: "" })}
+              onClick={() => setForm({ ...form, customerId: "", selectedCustomer: null, customerVehicles: [], vehicleId: "" })}
               className="text-[11px] text-brand-navy-600 hover:underline"
             >
               Change
@@ -225,40 +246,46 @@ function CustomerStep({ form, setForm }: { form: FormState; setForm: (f: FormSta
 
       {results.length > 0 && (
         <div className="border border-slate-200 rounded-lg overflow-hidden">
-          {results.map((c, i) => {
-            const cvehicles = vehicles.filter((v) => v.customerId === c.id);
-            return (
-              <button
-                key={c.id}
-                onClick={() => { setForm({ ...form, customerId: c.id, vehicleId: "", neighbourhood: extractNeighbourhood(c.address) }); setQuery(""); }}
-                className={`w-full flex items-center justify-between px-3 py-2.5 hover:bg-slate-50 transition-colors text-left ${i > 0 ? "border-t border-slate-100" : ""}`}
-              >
-                <div>
-                  <p className="text-sm font-medium text-slate-800">{c.name}</p>
-                  <p className="text-[11px] text-slate-400 tabular-nums">{c.phone}</p>
-                </div>
-                <span className="text-[11px] text-slate-400">{cvehicles.length} vehicle{cvehicles.length !== 1 ? "s" : ""}</span>
-              </button>
-            );
-          })}
+          {results.map((c, i) => (
+            <button
+              key={c.id}
+              onClick={() => {
+                setForm({
+                  ...form,
+                  customerId: c.id,
+                  selectedCustomer: c,
+                  customerVehicles: c.vehicles,
+                  vehicleId: "",
+                  neighbourhood: extractNeighbourhood(c.address),
+                });
+                setQuery("");
+              }}
+              className={`w-full flex items-center justify-between px-3 py-2.5 hover:bg-slate-50 transition-colors text-left ${i > 0 ? "border-t border-slate-100" : ""}`}
+            >
+              <div>
+                <p className="text-sm font-medium text-slate-800">{c.name}</p>
+                <p className="text-[11px] text-slate-400 tabular-nums">{c.phone}</p>
+              </div>
+              <span className="text-[11px] text-slate-400">{c.vehicles.length} vehicle{c.vehicles.length !== 1 ? "s" : ""}</span>
+            </button>
+          ))}
         </div>
       )}
 
       {query.length > 1 && results.length === 0 && (
         <div className="text-center py-6 text-slate-400 text-sm">
           <p>No customer found for "{query}"</p>
-          <button
-            onClick={() => toast.info("Create new customer flow (mock)")}
-            className="mt-2 flex items-center gap-1.5 mx-auto text-brand-navy-600 text-xs font-medium hover:underline"
+          <a href="/customers/new"
+            className="mt-2 inline-flex items-center gap-1.5 text-brand-navy-600 text-xs font-medium hover:underline"
           >
             <Plus className="w-3.5 h-3.5" /> Create new customer
-          </button>
+          </a>
         </div>
       )}
 
       {!query && (
         <p className="text-center text-[11px] text-slate-400 pt-2">
-          Type to search across {customers.length} customers
+          Type to search across {allCustomers.length} customers
         </p>
       )}
     </div>
@@ -270,7 +297,7 @@ function CustomerStep({ form, setForm }: { form: FormState; setForm: (f: FormSta
 function VehicleStep({ form, setForm }: { form: FormState; setForm: (f: FormState) => void }) {
   const [showAdd, setShowAdd] = useState(false);
   const [nv, setNv] = useState<FormState["newVehicle"]>({ make: "", model: "", year: "", reg: "", type: "4W", fuel: "Petrol" });
-  const cvehicles = vehicles.filter((v) => v.customerId === form.customerId);
+  const cvehicles = form.customerVehicles;
 
   function selectVehicle(id: string) {
     setForm({ ...form, vehicleId: id, newVehicle: null });
@@ -287,6 +314,7 @@ function VehicleStep({ form, setForm }: { form: FormState; setForm: (f: FormStat
     <div className="space-y-3">
       {cvehicles.map((v) => {
         const isSelected = form.vehicleId === v.id;
+        const vTypeLabel = normalizeVehicleType(v.type);
         return (
           <button
             key={v.id}
@@ -301,8 +329,8 @@ function VehicleStep({ form, setForm }: { form: FormState; setForm: (f: FormStat
               <Car className={`w-4 h-4 ${isSelected ? "text-brand-navy-700" : "text-slate-500"}`} />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-slate-800">{v.make} {v.model} ({v.year})</p>
-              <p className="text-[11px] text-slate-400 tabular-nums">{v.registration} · {v.type} · {v.fuelType ?? "Petrol"}</p>
+              <p className="text-sm font-medium text-slate-800">{v.make} {v.model}{v.year ? ` (${v.year})` : ""}</p>
+              <p className="text-[11px] text-slate-400 tabular-nums">{v.regNumber ?? "—"} · {vTypeLabel} · {v.fuelType.charAt(0) + v.fuelType.slice(1).toLowerCase()}</p>
             </div>
             {isSelected && <Check className="w-4 h-4 text-brand-navy-700 flex-shrink-0" />}
           </button>
@@ -451,9 +479,10 @@ function ServicesStep({ form, setForm }: { form: FormState; setForm: (f: FormSta
   const [partPrice, setPartPrice] = useState("");
   const [serviceSearch, setServiceSearch] = useState("");
 
-  const vehicle = vehicles.find((v) => v.id === form.vehicleId) ??
-    (form.newVehicle ? { type: form.newVehicle.type as "4W" | "2W" } : null);
-  const vType = vehicle?.type;
+  const selectedVehicle = form.customerVehicles.find((v) => v.id === form.vehicleId);
+  const vType: "4W" | "2W" | undefined = selectedVehicle
+    ? normalizeVehicleType(selectedVehicle.type)
+    : form.newVehicle?.type;
 
   const orderedCategories: ServiceCategory[] = vType === "2W"
     ? ["2W", "Wash", "Accessory"]
@@ -526,7 +555,6 @@ function ServicesStep({ form, setForm }: { form: FormState; setForm: (f: FormSta
 
   return (
     <div className="space-y-5">
-      {/* Service search */}
       <div className="relative">
         <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
         <input
@@ -543,7 +571,6 @@ function ServicesStep({ form, setForm }: { form: FormState; setForm: (f: FormSta
         )}
       </div>
 
-      {/* Search results — flat list */}
       {searchResults !== null ? (
         <div>
           {searchResults.length === 0 ? (
@@ -558,7 +585,6 @@ function ServicesStep({ form, setForm }: { form: FormState; setForm: (f: FormSta
           )}
         </div>
       ) : (
-        /* Category groups */
         byCategory.map(({ cat, items }) => (
           <div key={cat}>
             <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide mb-2">{CATEGORY_LABELS[cat]}</p>
@@ -572,7 +598,6 @@ function ServicesStep({ form, setForm }: { form: FormState; setForm: (f: FormSta
         ))
       )}
 
-      {/* Custom Services */}
       <div>
         <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide mb-2">Custom Services</p>
         {form.customServices.length > 0 && (
@@ -627,7 +652,6 @@ function ServicesStep({ form, setForm }: { form: FormState; setForm: (f: FormSta
         )}
       </div>
 
-      {/* Parts & Products */}
       <div>
         <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide mb-2">Parts & Products</p>
         {form.parts.length > 0 && (
@@ -810,135 +834,6 @@ function ScheduleStep({ form, setForm }: { form: FormState; setForm: (f: FormSta
   );
 }
 
-// ── Availability helpers ──────────────────────────────────────────
-
-const TODAY = "2026-04-27";
-const MINI_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-
-function getMondayWeek(anchor: string): string[] {
-  const d = new Date(anchor + "T00:00:00");
-  const dow = d.getDay();
-  const monday = new Date(d);
-  monday.setDate(d.getDate() - ((dow + 6) % 7));
-  return Array.from({ length: 7 }, (_, i) => {
-    const dd = new Date(monday);
-    dd.setDate(monday.getDate() + i);
-    return dd.toISOString().slice(0, 10);
-  });
-}
-
-function isMechanicFreeAt(mechId: string, date: string, time: string, durationMin: number): boolean {
-  if (!date || !time) return true;
-  const reqStart = new Date(`${date}T${time}:00`).getTime();
-  const reqEnd = reqStart + durationMin * 60_000;
-  const jobs = serviceRequests.filter(
-    (sr) =>
-      sr.assignedMechanicId === mechId &&
-      sr.scheduledAt &&
-      sr.scheduledAt.slice(0, 10) === date &&
-      !["cancelled", "completed", "paid", "invoiced"].includes(sr.status)
-  );
-  return jobs.every((job) => {
-    const jobStart = new Date(job.scheduledAt!).getTime();
-    const jobEnd = jobStart + 90 * 60_000;
-    return reqEnd <= jobStart || reqStart >= jobEnd;
-  });
-}
-
-// ── Day timeline (shows hourly slots for a mechanic on a date) ─────
-
-function DayTimeline({
-  mechId, date, requestedTime, durationMin, travelMin,
-}: {
-  mechId: string; date: string; requestedTime: string; durationMin: number; travelMin: number;
-}) {
-  const HOURS = Array.from({ length: 12 }, (_, i) => i + 8); // 8am–7pm
-  const jobs = serviceRequests.filter(
-    (sr) => sr.assignedMechanicId === mechId && sr.scheduledAt?.slice(0, 10) === date && !["cancelled"].includes(sr.status)
-  );
-
-  function slotState(hour: number): "requested" | "travel" | "busy" | "free" {
-    const slotS = hour * 60, slotE = slotS + 60;
-    if (requestedTime) {
-      const [rh, rm] = requestedTime.split(":").map(Number);
-      const rStart = rh * 60 + rm, rEnd = rStart + durationMin;
-      const tEnd = rEnd + travelMin;
-      if (rStart < slotE && rEnd > slotS) return "requested";
-      if (travelMin > 0 && rEnd < slotE && tEnd > slotS) return "travel";
-    }
-    for (const job of jobs) {
-      const d = new Date(job.scheduledAt!);
-      const jS = d.getHours() * 60 + d.getMinutes(), jE = jS + 90;
-      if (jS < slotE && jE > slotS) return "busy";
-    }
-    return "free";
-  }
-
-  return (
-    <div className="mt-3 pt-3 border-t border-slate-100">
-      <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Day view — {date}</p>
-      <div className="flex gap-px">
-        {HOURS.map((h) => {
-          const state = slotState(h);
-          const cls =
-            state === "requested" ? "bg-brand-navy-500"
-            : state === "travel"   ? "bg-amber-300"
-            : state === "busy"     ? "bg-red-400"
-            : "bg-green-200";
-          return (
-            <div key={h} className="flex flex-col items-center" style={{ flex: 1 }}>
-              <div className={`w-full h-4 rounded-sm ${cls}`} title={`${h}:00`} />
-              {h % 2 === 0 && <span className="text-[8px] text-slate-400 mt-0.5">{h}</span>}
-            </div>
-          );
-        })}
-      </div>
-      <div className="flex flex-wrap gap-3 mt-1.5">
-        {([
-          ["bg-brand-navy-500", "Your slot"],
-          ["bg-amber-300", "Travel buffer"],
-          ["bg-red-400", "Existing job"],
-          ["bg-green-200", "Free"],
-        ] as const).map(([c, l]) => (
-          <span key={l} className="flex items-center gap-1 text-[9px] text-slate-400">
-            <span className={`inline-block w-3 h-2 rounded-sm ${c}`} /> {l}
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ── Week calendar (per-day job count) ────────────────────────────
-
-function WeekCalendar({ mechId, selectedDate }: { mechId: string; selectedDate: string }) {
-  const anchor = selectedDate || TODAY;
-  const days = getMondayWeek(anchor);
-  return (
-    <div className="mt-2 pt-3 border-t border-slate-100">
-      <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Week overview</p>
-      <div className="grid grid-cols-7 gap-1">
-        {days.map((day, i) => {
-          const isSelected = day === selectedDate;
-          const isToday = day === TODAY;
-          const cnt = serviceRequests.filter(
-            (sr) => sr.assignedMechanicId === mechId && sr.scheduledAt?.slice(0, 10) === day
-          ).length;
-          const barColor = cnt === 0 ? "bg-green-400" : cnt === 1 ? "bg-amber-400" : "bg-red-400";
-          return (
-            <div key={day} className={`flex flex-col items-center gap-0.5 rounded-md py-1.5 px-0.5 ${isSelected ? "bg-brand-navy-100 border border-brand-navy-300" : isToday ? "bg-amber-50 border border-amber-200" : "bg-slate-50 border border-slate-200"}`}>
-              <span className={`text-[9px] font-semibold uppercase ${isSelected ? "text-brand-navy-700" : isToday ? "text-amber-700" : "text-slate-400"}`}>{MINI_DAYS[i]}</span>
-              <span className={`text-[11px] font-bold ${isSelected ? "text-brand-navy-800" : isToday ? "text-amber-800" : "text-slate-700"}`}>{new Date(day + "T00:00:00").getDate()}</span>
-              <span className={`w-5 h-1 rounded-full ${barColor}`} />
-              <span className="text-[9px] text-slate-400">{cnt}j</span>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 // ── Step 6: Mechanic ──────────────────────────────────────────────
 
 const statusLabel: Record<string, string> = {
@@ -949,25 +844,21 @@ const statusColor: Record<string, string> = {
 };
 
 function MechanicCard({
-  m, form, setForm, skillMatch, freeAtTime, hasSpecificTime,
+  m, form, setForm,
 }: {
   m: typeof mechanics[0];
   form: FormState;
   setForm: (f: FormState) => void;
-  skillMatch: boolean;
-  freeAtTime: boolean;
-  hasSpecificTime: boolean;
 }) {
   const isSelected = form.mechanicId === m.id;
-  const travelMin = form.serviceType === "doorstep" ? form.travelTimeMinutes : 0;
 
   return (
-    <div className={`rounded-lg border overflow-hidden transition-colors ${isSelected ? "border-brand-navy-400" : freeAtTime ? "border-slate-200" : "border-slate-100"}`}>
+    <div className={`rounded-lg border overflow-hidden transition-colors ${isSelected ? "border-brand-navy-400" : "border-slate-200"}`}>
       <button
         onClick={() => setForm({ ...form, mechanicId: m.id })}
         className={`w-full flex items-center gap-3 p-3 text-left transition-colors ${
           isSelected ? "bg-brand-navy-50" : "bg-white hover:bg-slate-50"
-        } ${!freeAtTime && !isSelected ? "opacity-60" : ""}`}
+        }`}
       >
         <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold flex-shrink-0 ${isSelected ? "bg-brand-navy-200 text-brand-navy-800" : "bg-slate-100 text-slate-600"}`}>
           {m.name.split(" ").map((w) => w[0]).join("").slice(0, 2)}
@@ -975,19 +866,11 @@ function MechanicCard({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 flex-wrap">
             <p className={`text-sm font-medium ${isSelected ? "text-brand-navy-800" : "text-slate-800"}`}>{m.name}</p>
-            {skillMatch && (
-              <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-green-50 text-green-700 border border-green-200">Skill match</span>
-            )}
-            {hasSpecificTime ? (
-              freeAtTime
-                ? <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-green-50 text-green-700 border border-green-200">Free at {form.preferredTime}</span>
-                : <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-red-50 text-red-600 border border-red-200">Busy at {form.preferredTime}</span>
-            ) : (
-              m.currentStatus === "free" && <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600">Free now</span>
-            )}
           </div>
           <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-            <span className={`text-[11px] font-medium ${statusColor[m.currentStatus]}`}>{statusLabel[m.currentStatus]}</span>
+            <span className={`text-[11px] font-medium ${statusColor[m.currentStatus] ?? "text-slate-500"}`}>
+              {statusLabel[m.currentStatus] ?? m.currentStatus}
+            </span>
             <span className="text-[10px] text-slate-400">·</span>
             <span className="text-[11px] text-slate-400">{m.todaysJobCount} job{m.todaysJobCount !== 1 ? "s" : ""} today</span>
             <span className="text-[10px] text-slate-400">·</span>
@@ -1001,53 +884,29 @@ function MechanicCard({
         </div>
         {isSelected && <Check className="w-4 h-4 text-brand-navy-700 flex-shrink-0" />}
       </button>
-      {isSelected && form.preferredDate && (
-        <div className="px-3 pb-3">
-          {hasSpecificTime && (
-            <DayTimeline
-              mechId={m.id}
-              date={form.preferredDate}
-              requestedTime={form.preferredTime}
-              durationMin={form.durationMinutes}
-              travelMin={travelMin}
-            />
-          )}
-          <WeekCalendar mechId={m.id} selectedDate={form.preferredDate} />
-          {travelMin > 0 && (
-            <p className="text-[9px] text-amber-600 mt-1.5">+{travelMin}min travel buffer shown in day view</p>
-          )}
-        </div>
-      )}
     </div>
   );
 }
 
-// ── Split-assignment group helpers ────────────────────────────────
-
-type SplitGroup = {
-  category: string;
-  label: string;
-  count: number;
-};
-
-const CATEGORY_FALLBACK_SKILLS = new Set(["Wash", "Accessory", "Body", "Custom"]);
-
-function computeSplitGroups(form: FormState): SplitGroup[] {
-  const groups: SplitGroup[] = [];
+function computeSplitGroups(form: FormState) {
   const byCategory: Record<string, number> = {};
   for (const id of form.selectedServiceIds) {
     const item = serviceCatalog.find((s) => s.id === id);
     if (!item) continue;
     byCategory[item.category] = (byCategory[item.category] ?? 0) + 1;
   }
-  for (const [cat, cnt] of Object.entries(byCategory)) {
-    groups.push({ category: cat, label: CATEGORY_LABELS[cat as ServiceCategory] ?? cat, count: cnt });
-  }
+  const groups = Object.entries(byCategory).map(([cat, count]) => ({
+    category: cat,
+    label: CATEGORY_LABELS[cat as ServiceCategory] ?? cat,
+    count,
+  }));
   if (form.customServices.length > 0) {
     groups.push({ category: "Custom", label: "Custom Services", count: form.customServices.length });
   }
   return groups;
 }
+
+const CATEGORY_FALLBACK_SKILLS = new Set(["Wash", "Accessory", "Body", "Custom"]);
 
 function mechanicsForGroup(category: string): typeof mechanics {
   if (CATEGORY_FALLBACK_SKILLS.has(category)) return mechanics;
@@ -1055,18 +914,15 @@ function mechanicsForGroup(category: string): typeof mechanics {
 }
 
 function MechanicStep({ form, setForm }: { form: FormState; setForm: (f: FormState) => void }) {
-  const vehicle = vehicles.find((v) => v.id === form.vehicleId) ??
-    (form.newVehicle ? { type: form.newVehicle.type as "4W" | "2W" } : null);
-  const vType = vehicle?.type;
-
-  const hasSpecificTime = form.schedulingPreference === "specific" && !!form.preferredDate && !!form.preferredTime;
+  const selectedVehicle = form.customerVehicles.find((v) => v.id === form.vehicleId);
+  const vType: "4W" | "2W" | undefined = selectedVehicle
+    ? normalizeVehicleType(selectedVehicle.type)
+    : form.newVehicle?.type;
 
   const scored = mechanics.map((m) => {
     const skillMatch = vType ? m.skills.includes(vType as "4W" | "2W") : false;
-    const freeAtTime = hasSpecificTime
-      ? isMechanicFreeAt(m.id, form.preferredDate, form.preferredTime, form.durationMinutes)
-      : m.currentStatus === "free";
-    return { m, skillMatch, freeAtTime };
+    const freeNow = m.currentStatus === "free";
+    return { m, skillMatch, freeNow };
   });
 
   function sortGroup(arr: typeof scored) {
@@ -1077,8 +933,8 @@ function MechanicStep({ form, setForm }: { form: FormState; setForm: (f: FormSta
     });
   }
 
-  const available = sortGroup(scored.filter((x) => x.freeAtTime));
-  const unavailable = sortGroup(scored.filter((x) => !x.freeAtTime));
+  const available = sortGroup(scored.filter((x) => x.freeNow));
+  const unavailable = sortGroup(scored.filter((x) => !x.freeNow));
 
   const splitGroups = computeSplitGroups(form);
 
@@ -1088,7 +944,6 @@ function MechanicStep({ form, setForm }: { form: FormState; setForm: (f: FormSta
 
   return (
     <div className="space-y-2">
-      {/* Split toggle */}
       <div className="flex items-center justify-between p-3 bg-slate-50 border border-slate-200 rounded-lg mb-3">
         <div>
           <p className="text-sm font-medium text-slate-700">Split by service type</p>
@@ -1108,7 +963,6 @@ function MechanicStep({ form, setForm }: { form: FormState; setForm: (f: FormSta
       </div>
 
       {form.useSplitAssignment ? (
-        /* ── Split mode ── */
         <div className="space-y-4">
           {splitGroups.length === 0 && (
             <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-[12px] text-amber-700">
@@ -1162,44 +1016,33 @@ function MechanicStep({ form, setForm }: { form: FormState; setForm: (f: FormSta
           )}
         </div>
       ) : (
-        /* ── Single mechanic mode (original) ── */
         <>
           <p className="text-[11px] text-slate-500 mb-2">
-            {hasSpecificTime ? (
-              <>Mechanics free on <span className="font-medium text-brand-navy-600">{form.preferredDate} at {form.preferredTime}</span> ({form.durationMinutes}min) shown first. Skill: <span className="font-medium">{vType ?? "any"}</span>.</>
-            ) : (
-              <>No specific time set — showing current status. {vType && <>Skill match for <span className="font-medium">{vType}</span> prioritised.</>}</>
-            )}
+            {vType ? <>Skill match for <span className="font-medium">{vType}</span> prioritised.</> : "Showing all mechanics."}
           </p>
 
-          {/* Available */}
           {available.length > 0 && (
             <>
               <div className="flex items-center gap-2">
-                <span className="text-[10px] font-semibold text-green-700 uppercase tracking-wide">
-                  {hasSpecificTime ? `Free at ${form.preferredTime}` : "Free now"}
-                </span>
+                <span className="text-[10px] font-semibold text-green-700 uppercase tracking-wide">Free now</span>
                 <div className="flex-1 h-px bg-green-200" />
                 <span className="text-[10px] text-green-600">{available.length}</span>
               </div>
-              {available.map(({ m, skillMatch, freeAtTime }) => (
-                <MechanicCard key={m.id} m={m} form={form} setForm={setForm} skillMatch={skillMatch} freeAtTime={freeAtTime} hasSpecificTime={hasSpecificTime} />
+              {available.map(({ m }) => (
+                <MechanicCard key={m.id} m={m} form={form} setForm={setForm} />
               ))}
             </>
           )}
 
-          {/* Unavailable */}
           {unavailable.length > 0 && (
             <>
               <div className="flex items-center gap-2 mt-3">
-                <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">
-                  {hasSpecificTime ? `Busy at ${form.preferredTime}` : "On job / off duty"}
-                </span>
+                <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">On job / off duty</span>
                 <div className="flex-1 h-px bg-slate-200" />
                 <span className="text-[10px] text-slate-400">{unavailable.length}</span>
               </div>
-              {unavailable.map(({ m, skillMatch, freeAtTime }) => (
-                <MechanicCard key={m.id} m={m} form={form} setForm={setForm} skillMatch={skillMatch} freeAtTime={freeAtTime} hasSpecificTime={hasSpecificTime} />
+              {unavailable.map(({ m }) => (
+                <MechanicCard key={m.id} m={m} form={form} setForm={setForm} />
               ))}
             </>
           )}
@@ -1223,8 +1066,8 @@ function MechanicStep({ form, setForm }: { form: FormState; setForm: (f: FormSta
 // ── Step 7: Review ────────────────────────────────────────────────
 
 function ReviewStep({ form, setForm }: { form: FormState; setForm: (f: FormState) => void }) {
-  const customer = customers.find((c) => c.id === form.customerId);
-  const vehicle = vehicles.find((v) => v.id === form.vehicleId) ?? null;
+  const customer = form.selectedCustomer;
+  const vehicle = form.customerVehicles.find((v) => v.id === form.vehicleId) ?? null;
   const mechanic = mechanics.find((m) => m.id === form.mechanicId);
   const selectedServices = serviceCatalog.filter((s) => form.selectedServiceIds.includes(s.id));
   const catalogTotal = selectedServices.reduce((sum, s) => sum + s.basePrice, 0);
@@ -1244,13 +1087,12 @@ function ReviewStep({ form, setForm }: { form: FormState; setForm: (f: FormState
 
   return (
     <div className="space-y-4">
-      {/* Summary cards */}
       <div className="grid grid-cols-2 gap-3">
         <InfoCard label="Customer" value={customer?.name ?? "—"} sub={customer?.phone} />
         <InfoCard
           label="Vehicle"
           value={vehicle ? `${vehicle.make} ${vehicle.model}` : form.newVehicle ? `${form.newVehicle.make} ${form.newVehicle.model} (new)` : "—"}
-          sub={vehicle?.registration}
+          sub={vehicle?.regNumber ?? undefined}
         />
         <InfoCard label="Service type" value={form.serviceType === "doorstep" ? "Doorstep" : "Garage"} />
         <InfoCard label="Schedule" value={fmtSchedule()} />
@@ -1262,7 +1104,6 @@ function ReviewStep({ form, setForm }: { form: FormState; setForm: (f: FormState
         <InfoCard label="Area" value={form.neighbourhood || "—"} />
       </div>
 
-      {/* Split assignment section */}
       {form.useSplitAssignment && (() => {
         const splitGroups = computeSplitGroups(form);
         return splitGroups.length > 0 ? (
@@ -1287,6 +1128,7 @@ function ReviewStep({ form, setForm }: { form: FormState; setForm: (f: FormState
           </div>
         ) : null;
       })()}
+
       {customer?.address && (
         <div className="flex items-start gap-1.5 text-[11px] text-slate-500 -mt-1">
           <MapPin className="w-3 h-3 flex-shrink-0 mt-0.5" />
@@ -1294,7 +1136,6 @@ function ReviewStep({ form, setForm }: { form: FormState; setForm: (f: FormState
         </div>
       )}
 
-      {/* Services + Parts estimate */}
       {hasAnything ? (
         <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
           <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide px-3 py-2 border-b border-slate-100">Estimate</p>
@@ -1347,7 +1188,6 @@ function ReviewStep({ form, setForm }: { form: FormState; setForm: (f: FormState
         </div>
       )}
 
-      {/* Notes */}
       <div>
         <label className="block text-xs font-medium text-slate-600 mb-1">Special instructions / notes</label>
         <textarea
@@ -1385,6 +1225,9 @@ function canAdvance(step: number, form: FormState): { ok: boolean; reason?: stri
 function NewServiceRequestContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const [allCustomers, setAllCustomers] = useState<RealCustomer[]>([]);
+  const [saving, setSaving] = useState(false);
+
   const [step, setStep] = useState(() => {
     const cId = searchParams.get("customerId");
     const vId = searchParams.get("vehicleId");
@@ -1392,11 +1235,35 @@ function NewServiceRequestContent() {
     if (cId) return 1;
     return 0;
   });
+
   const [form, setForm] = useState<FormState>(() => {
     const customerId = searchParams.get("customerId") ?? "";
     const vehicleId = searchParams.get("vehicleId") ?? "";
     return { ...INITIAL, customerId, vehicleId };
   });
+
+  useEffect(() => {
+    fetch("/api/customers")
+      .then((r) => r.json())
+      .then((data: RealCustomer[]) => {
+        setAllCustomers(data);
+        // If customerId is pre-filled (from deep link), hydrate selectedCustomer
+        const prefilledId = searchParams.get("customerId");
+        if (prefilledId) {
+          const c = data.find((x) => x.id === prefilledId);
+          if (c) {
+            const vehicleId = searchParams.get("vehicleId") ?? "";
+            setForm((prev) => ({
+              ...prev,
+              selectedCustomer: c,
+              customerVehicles: c.vehicles,
+              vehicleId: vehicleId && c.vehicles.some((v) => v.id === vehicleId) ? vehicleId : prev.vehicleId,
+              neighbourhood: extractNeighbourhood(c.address),
+            }));
+          }
+        }
+      });
+  }, []);
 
   const { ok, reason } = canAdvance(step, form);
   const isLast = step === STEPS.length - 1;
@@ -1411,30 +1278,75 @@ function NewServiceRequestContent() {
     setStep((s) => Math.max(s - 1, 0));
   }
 
-  function submit() {
-    const selectedServices = serviceCatalog.filter((s) => form.selectedServiceIds.includes(s.id));
-    const total =
-      selectedServices.reduce((sum, s) => sum + s.basePrice, 0) +
-      form.customServices.reduce((sum, c) => sum + c.price, 0) +
-      form.parts.reduce((sum, p) => sum + p.qty * p.unitPrice, 0);
-    const customer = customers.find((c) => c.id === form.customerId);
-    const name = customer?.name ?? "customer";
-    const travelNote = form.serviceType === "doorstep" && form.travelTimeMinutes > 0 ? ` · ${form.travelTimeMinutes}min travel` : "";
+  async function submit() {
+    if (!ok) { toast.error(reason); return; }
+    setSaving(true);
+    try {
+      let vehicleId: string | null = form.vehicleId && form.vehicleId !== "__new__" ? form.vehicleId : null;
 
-    if (form.useSplitAssignment) {
-      const splitGroups = computeSplitGroups(form);
-      const n = splitGroups.length;
-      toast.success(`${n} service task${n !== 1 ? "s" : ""} created (mock)`);
-    } else if (total > 0) {
-      toast.success(`SR created · Estimate ₹${total.toLocaleString("en-IN")} sent to ${name} via WhatsApp${travelNote}`);
-    } else {
-      toast.success(`Service request created${travelNote}`);
+      // Create new vehicle first if needed
+      if (form.vehicleId === "__new__" && form.newVehicle) {
+        const fuelMap: Record<string, string> = { Petrol: "PETROL", Diesel: "DIESEL", Electric: "ELECTRIC", CNG: "CNG" };
+        const vRes = await fetch("/api/vehicles", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            customerId: form.customerId,
+            make: form.newVehicle.make,
+            model: form.newVehicle.model,
+            year: form.newVehicle.year ? parseInt(form.newVehicle.year) : null,
+            regNumber: form.newVehicle.reg || null,
+            type: form.newVehicle.type === "2W" ? "TWO_WHEELER" : "FOUR_WHEELER",
+            fuelType: fuelMap[form.newVehicle.fuel] ?? "PETROL",
+          }),
+        });
+        if (!vRes.ok) {
+          toast.error("Failed to create vehicle");
+          return;
+        }
+        const newVehicle = await vRes.json();
+        vehicleId = newVehicle.id;
+      }
+
+      const locationMap: Record<string, string> = { doorstep: "FIELD", garage: "GARAGE" };
+
+      let scheduledAt: string | null = null;
+      if (form.schedulingPreference === "specific" && form.preferredDate) {
+        scheduledAt = new Date(`${form.preferredDate}T${form.preferredTime}:00`).toISOString();
+      }
+
+      const srRes = await fetch("/api/service-requests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customerId: form.customerId || null,
+          vehicleId,
+          mechanicId: form.mechanicId || null,
+          locationType: locationMap[form.serviceType] ?? "GARAGE",
+          complaint: form.issueDescription || null,
+          scheduledAt,
+          notes: form.notes || null,
+        }),
+      });
+
+      if (!srRes.ok) {
+        const err = await srRes.json().catch(() => ({}));
+        toast.error(err.error ?? "Failed to create service request");
+        return;
+      }
+
+      const sr = await srRes.json();
+      toast.success(`Service request ${sr.srNumber} created`);
+      router.push(`/services/${sr.id}`);
+    } catch {
+      toast.error("Something went wrong");
+    } finally {
+      setSaving(false);
     }
-    setTimeout(() => router.push("/services/sr1"), 900);
   }
 
   const stepComponents = [
-    <CustomerStep key="customer" form={form} setForm={setForm} />,
+    <CustomerStep key="customer" form={form} setForm={setForm} allCustomers={allCustomers} />,
     <VehicleStep key="vehicle" form={form} setForm={setForm} />,
     <IssueStep key="issue" form={form} setForm={setForm} />,
     <ServicesStep key="services" form={form} setForm={setForm} />,
@@ -1445,7 +1357,6 @@ function NewServiceRequestContent() {
 
   return (
     <div className="max-w-2xl mx-auto p-4 pb-16">
-      {/* Header */}
       <div className="flex items-center gap-3 mb-6">
         <button
           onClick={back}
@@ -1461,7 +1372,6 @@ function NewServiceRequestContent() {
 
       <StepIndicator current={step} />
 
-      {/* Step card */}
       <div className="bg-white border border-slate-200 rounded-lg p-5 mb-4">
         <div className="flex items-center gap-2 mb-4">
           <div className="w-7 h-7 rounded-full bg-brand-navy-50 flex items-center justify-center">
@@ -1472,7 +1382,6 @@ function NewServiceRequestContent() {
         {stepComponents[step]}
       </div>
 
-      {/* Navigation */}
       <div className="flex items-center justify-between">
         <button
           onClick={back}
@@ -1484,9 +1393,10 @@ function NewServiceRequestContent() {
         {isLast ? (
           <button
             onClick={submit}
-            className="flex items-center gap-2 px-5 py-2 bg-brand-navy-800 text-white text-sm font-medium rounded-md hover:bg-brand-navy-700 transition-colors"
+            disabled={saving}
+            className="flex items-center gap-2 px-5 py-2 bg-brand-navy-800 text-white text-sm font-medium rounded-md hover:bg-brand-navy-700 transition-colors disabled:opacity-60"
           >
-            <Check className="w-4 h-4" /> Create Service Request
+            <Check className="w-4 h-4" /> {saving ? "Creating…" : "Create Service Request"}
           </button>
         ) : (
           <button

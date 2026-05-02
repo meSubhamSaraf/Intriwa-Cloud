@@ -1,0 +1,700 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// Intriwa Cloud Garage CRM — Prisma Schema
+// ─────────────────────────────────────────────────────────────────────────────
+// Every model carries a `garageId` so data is strictly isolated per tenant.
+// Supabase Row Level Security (RLS) enforces this at the DB layer; Prisma
+// enforces it at the application layer.  Never query without a garageId filter.
+// ─────────────────────────────────────────────────────────────────────────────
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+// In Prisma 7, connection URLs are configured in prisma.config.ts (not here).
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum Role {
+  SUPER_ADMIN
+  OPS_MANAGER
+  MECHANIC
+}
+
+enum SRStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING_PARTS
+  READY
+  CLOSED
+  CANCELLED
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  CONVERTED
+  LOST
+}
+
+enum AttendanceStatus {
+  PRESENT
+  HALF_DAY
+  OVERTIME
+  ABSENT
+}
+
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  INACTIVE
+  EXPIRED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum PaymentMethod {
+  CASH
+  UPI
+  CARD
+  NEFT
+  CHEQUE
+}
+
+enum VehicleType {
+  TWO_WHEELER
+  THREE_WHEELER
+  FOUR_WHEELER
+  COMMERCIAL
+}
+
+enum FuelType {
+  PETROL
+  DIESEL
+  CNG
+  ELECTRIC
+  HYBRID
+}
+
+enum EmploymentType {
+  FULL_TIME
+  PART_TIME
+  FREELANCE
+  AFFILIATE // Per-job pay; login/logout availability; location tracked
+}
+
+enum LocationType {
+  GARAGE
+  SOCIETY
+  FIELD
+}
+
+enum AddOnStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum InventoryAuditType {
+  INITIAL
+  STOCK_ADD
+  STOCK_DEDUCT
+  PRICE_UPDATE
+}
+
+enum TimelineEventType {
+  STATUS_CHANGE
+  NOTE
+  PHOTO
+  WHATSAPP_SENT
+  INVOICE_RAISED
+  LOCATION_RECEIVED // customer sent their location via WhatsApp
+}
+
+// ─── Payout / Payroll enums ───────────────────────────────────────────────────
+
+enum SalaryType {
+  MONTHLY
+  WEEKLY
+}
+
+// How a mechanic's base pay is calculated per service item they handle
+enum PayoutConfigType {
+  FIXED_PER_ITEM // flat ₹ amount per item assigned
+  PERCENT_OF_ITEM // % of the item's invoice value
+  SALARY // fixed monthly/weekly salary (for FULL_TIME / PART_TIME)
+}
+
+enum PayoutStatus {
+  PENDING // calculated, not yet reviewed
+  APPROVED // ops manager signed off
+  PAID // payment sent via Cashfree Payouts or cash
+  CANCELLED
+}
+
+// Incentive rule conditions
+enum IncentiveCondition {
+  JOBS_COUNT // number of SRs closed in the period
+  AVG_RATING // average customer rating in the period
+  REVENUE // total invoice value generated in the period
+}
+
+enum IncentivePeriod {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+enum BonusType {
+  FIXED // flat ₹ bonus
+  PERCENT // % of base pay
+}
+
+// ─── Garage (Tenant) ──────────────────────────────────────────────────────────
+
+model Garage {
+  id        String             @id @default(cuid())
+  name      String
+  territory String?
+  address   String?
+  phone     String?
+  email     String?
+  status    SubscriptionStatus @default(TRIAL)
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+
+  profiles          Profile[]
+  mechanics         Mechanic[]
+  societies         Society[]
+  customers         Customer[]
+  serviceRequests   ServiceRequest[]
+  inventoryItems    InventoryItem[]
+  purchaseOrders    PurchaseOrder[]
+  leads             Lead[]
+  attendanceRecords AttendanceRecord[]
+  invoices          Invoice[]
+  incentiveRules    IncentiveRule[]
+  mechanicPayouts   MechanicPayout[]
+}
+
+// ─── Profile (Auth Users) ─────────────────────────────────────────────────────
+
+model Profile {
+  id        String   @id
+  garageId  String?
+  role      Role     @default(OPS_MANAGER)
+  name      String
+  email     String   @unique
+  phone     String?
+  avatarUrl String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  garage Garage? @relation(fields: [garageId], references: [id])
+}
+
+// ─── Society ──────────────────────────────────────────────────────────────────
+
+model Society {
+  id           String   @id @default(cuid())
+  garageId     String
+  name         String
+  address      String?
+  contactName  String?
+  contactPhone String?
+  vehicleCount Int?
+  visitDay     String?
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  garage          Garage           @relation(fields: [garageId], references: [id])
+  serviceRequests ServiceRequest[]
+  customers       Customer[]
+}
+
+// ─── Customer ─────────────────────────────────────────────────────────────────
+
+model Customer {
+  id        String   @id @default(cuid())
+  garageId  String
+  societyId String?
+  name      String
+  phone     String
+  email     String?
+  address   String?
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  garage          Garage           @relation(fields: [garageId], references: [id])
+  society         Society?         @relation(fields: [societyId], references: [id])
+  vehicles        Vehicle[]
+  leads           Lead[]
+  serviceRequests ServiceRequest[]
+}
+
+// ─── Vehicle ──────────────────────────────────────────────────────────────────
+
+model Vehicle {
+  id              String      @id @default(cuid())
+  customerId      String
+  type            VehicleType @default(FOUR_WHEELER)
+  make            String
+  model           String
+  year            Int?
+  regNumber       String?     @unique
+  color           String?
+  fuelType        FuelType    @default(PETROL)
+  engineNumber    String?
+  chassisNumber   String?
+  odometer        Int?
+  pucExpiry       DateTime?
+  insuranceExpiry DateTime?
+  notes           String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  customer        Customer         @relation(fields: [customerId], references: [id])
+  serviceRequests ServiceRequest[]
+}
+
+// ─── Mechanic ─────────────────────────────────────────────────────────────────
+
+model Mechanic {
+  id             String         @id @default(cuid())
+  garageId       String
+  name           String
+  phone          String?
+  email          String?
+  employmentType EmploymentType @default(FULL_TIME)
+  joinDate       DateTime?
+  photoUrl       String?
+  rating         Float?
+  isActive       Boolean        @default(true)
+  notes          String?
+
+  // ── Payroll fields ───────────────────────────────────────────────────────────
+  // For FULL_TIME / PART_TIME mechanics
+  salaryAmount Decimal?    @db.Decimal(10, 2)
+  salaryType   SalaryType? // MONTHLY or WEEKLY
+
+  // For AFFILIATE mechanics — how their per-item earnings are calculated
+  payoutConfigType PayoutConfigType?
+  payoutRate       Decimal?          @db.Decimal(10, 4) // ₹ amount or % (e.g. 0.15 = 15%)
+
+  // Security deposit collected from mechanic (refundable on exit)
+  depositAmount Decimal? @db.Decimal(10, 2)
+  depositNotes  String?
+
+  // ── Availability (AFFILIATE only) ────────────────────────────────────────────
+  // true when mechanic has clocked in via the portal; false when clocked out
+  isAvailable  Boolean   @default(false)
+  lastSeenAt   DateTime? // last time they pinged location or were active
+  lastLocation Json? // { lat, lng, accuracy, timestamp }
+
+  // ── Documents ────────────────────────────────────────────────────────────────
+  aadharUrl             String?
+  panUrl                String?
+  documentsVerified     Boolean @default(false)
+  emergencyContactName  String?
+  emergencyContactPhone String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  garage            Garage                    @relation(fields: [garageId], references: [id])
+  skills            MechanicToSkill[]
+  serviceRequests   ServiceRequest[]
+  attendanceRecords AttendanceRecord[]
+  payouts           MechanicPayout[]
+  auditLogs         MechanicAuditLog[]
+  locationHistory   MechanicLocationHistory[]
+  serviceItems      ServiceItem[] // items assigned to this mechanic
+}
+
+// ─── Skills ───────────────────────────────────────────────────────────────────
+
+model MechanicSkill {
+  id       String  @id @default(cuid())
+  label    String  @unique
+  isPreset Boolean @default(false)
+
+  mechanics MechanicToSkill[]
+}
+
+model MechanicToSkill {
+  mechanicId String
+  skillId    String
+
+  mechanic MechanicSkill @relation(fields: [skillId], references: [id])
+  Mechanic Mechanic      @relation(fields: [mechanicId], references: [id])
+
+  @@id([mechanicId, skillId])
+}
+
+// ─── Mechanic Audit Log ───────────────────────────────────────────────────────
+// Append-only log of every field change on a mechanic profile
+
+model MechanicAuditLog {
+  id         String   @id @default(cuid())
+  mechanicId String
+  actorId    String?
+  actorName  String?
+  field      String // which field was changed
+  oldValue   String?
+  newValue   String?
+  createdAt  DateTime @default(now())
+
+  mechanic Mechanic @relation(fields: [mechanicId], references: [id])
+}
+
+// ─── Mechanic Location History ────────────────────────────────────────────────
+// Rolling ping log — purge rows older than 24h via a scheduled job
+
+model MechanicLocationHistory {
+  id         String   @id @default(cuid())
+  mechanicId String
+  lat        Float
+  lng        Float
+  accuracy   Float? // GPS accuracy in metres
+  createdAt  DateTime @default(now())
+
+  mechanic Mechanic @relation(fields: [mechanicId], references: [id])
+}
+
+// ─── Incentive Rules ──────────────────────────────────────────────────────────
+// Ops manager defines rules; the payout engine evaluates them each period.
+// Rules are garage-scoped and can optionally filter by employment type.
+
+model IncentiveRule {
+  id              String             @id @default(cuid())
+  garageId        String
+  name            String
+  description     String?
+  conditionType   IncentiveCondition // what metric to check
+  conditionPeriod IncentivePeriod // DAILY / WEEKLY / MONTHLY
+  conditionValue  Decimal            @db.Decimal(10, 2) // threshold value
+  bonusType       BonusType // FIXED ₹ or PERCENT of base
+  bonusAmount     Decimal            @db.Decimal(10, 2)
+  appliesToType   EmploymentType? // null = applies to all types
+  isActive        Boolean            @default(true)
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  garage            Garage                    @relation(fields: [garageId], references: [id])
+  appliedIncentives MechanicPayoutIncentive[]
+}
+
+// ─── Mechanic Payouts ─────────────────────────────────────────────────────────
+// One payout record per mechanic per period.
+// Created by the payout engine; approved by ops manager; paid via Cashfree.
+
+model MechanicPayout {
+  id                 String         @id @default(cuid())
+  garageId           String
+  mechanicId         String
+  periodStart        DateTime
+  periodEnd          DateTime
+  baseAmount         Decimal        @db.Decimal(10, 2) // sum of per-item earnings
+  incentiveAmount    Decimal        @default(0) @db.Decimal(10, 2)
+  totalAmount        Decimal        @db.Decimal(10, 2)
+  status             PayoutStatus   @default(PENDING)
+  paymentMethod      PaymentMethod?
+  cashfreeTransferId String? // Cashfree Payouts transfer reference
+  approvedById       String?
+  approvedAt         DateTime?
+  paidAt             DateTime?
+  notes              String?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  garage     Garage                    @relation(fields: [garageId], references: [id])
+  mechanic   Mechanic                  @relation(fields: [mechanicId], references: [id])
+  items      MechanicPayoutItem[]
+  incentives MechanicPayoutIncentive[]
+}
+
+// Line items within a payout — one row per SR item the mechanic handled
+model MechanicPayoutItem {
+  id               String  @id @default(cuid())
+  payoutId         String
+  serviceRequestId String?
+  serviceItemId    String?
+  description      String
+  amount           Decimal @db.Decimal(10, 2)
+
+  payout MechanicPayout @relation(fields: [payoutId], references: [id])
+}
+
+// Incentive bonuses applied within a payout — one row per rule triggered
+model MechanicPayoutIncentive {
+  id           String  @id @default(cuid())
+  payoutId     String
+  ruleId       String
+  ruleName     String // denormalised snapshot so history survives rule edits
+  triggerValue Decimal @db.Decimal(10, 2) // actual metric value (e.g. 5 jobs)
+  bonusAmount  Decimal @db.Decimal(10, 2)
+
+  payout MechanicPayout @relation(fields: [payoutId], references: [id])
+  rule   IncentiveRule  @relation(fields: [ruleId], references: [id])
+}
+
+// ─── Service Request (SR) ─────────────────────────────────────────────────────
+
+model ServiceRequest {
+  id              String       @id @default(cuid())
+  garageId        String
+  customerId      String?
+  vehicleId       String?
+  societyId       String?
+  mechanicId      String? // primary mechanic (lead)
+  srNumber        String       @unique
+  status          SRStatus     @default(OPEN)
+  locationType    LocationType @default(GARAGE)
+  complaint       String?
+  diagnosis       String?
+  estimatedKm     Int?
+  openedAt        DateTime     @default(now())
+  closedAt        DateTime?
+  scheduledAt     DateTime?
+  notes           String?
+  // Customer location received via WhatsApp or in-app
+  customerLat     Float?
+  customerLng     Float?
+  customerAddress String? // reverse-geocoded or as-typed
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  garage   Garage    @relation(fields: [garageId], references: [id])
+  customer Customer? @relation(fields: [customerId], references: [id])
+  vehicle  Vehicle?  @relation(fields: [vehicleId], references: [id])
+  society  Society?  @relation(fields: [societyId], references: [id])
+  mechanic Mechanic? @relation(fields: [mechanicId], references: [id])
+
+  items           ServiceItem[]
+  addOns          AddOn[]
+  timelineEvents  TimelineEvent[]
+  inventoryUsages SRInventoryUsage[]
+  invoices        Invoice[]
+}
+
+// Labour / service line items on an SR
+// Each item can be assigned to a specific mechanic for payout calculation
+model ServiceItem {
+  id                 String  @id @default(cuid())
+  serviceRequestId   String
+  assignedMechanicId String? // which mechanic handles this specific item
+  description        String
+  quantity           Int     @default(1)
+  unitPrice          Decimal @db.Decimal(10, 2)
+  total              Decimal @db.Decimal(10, 2)
+
+  serviceRequest   ServiceRequest @relation(fields: [serviceRequestId], references: [id])
+  assignedMechanic Mechanic?      @relation(fields: [assignedMechanicId], references: [id])
+}
+
+model AddOn {
+  id               String      @id @default(cuid())
+  serviceRequestId String
+  description      String
+  estimatedCost    Decimal     @db.Decimal(10, 2)
+  status           AddOnStatus @default(PENDING)
+  approvedAt       DateTime?
+  rejectedAt       DateTime?
+  notes            String?
+
+  serviceRequest ServiceRequest @relation(fields: [serviceRequestId], references: [id])
+}
+
+model TimelineEvent {
+  id               String            @id @default(cuid())
+  serviceRequestId String
+  type             TimelineEventType
+  actorId          String?
+  actorName        String?
+  body             String?
+  metadata         Json?
+  fileUrl          String?
+  createdAt        DateTime          @default(now())
+
+  serviceRequest ServiceRequest @relation(fields: [serviceRequestId], references: [id])
+}
+
+// ─── Inventory ────────────────────────────────────────────────────────────────
+
+model InventoryItem {
+  id         String   @id @default(cuid())
+  garageId   String
+  name       String
+  category   String?
+  unit       String   @default("pcs")
+  stockQty   Decimal  @default(0) @db.Decimal(10, 3)
+  unitPrice  Decimal  @default(0) @db.Decimal(10, 2)
+  lowStockAt Decimal? @db.Decimal(10, 3)
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  garage        Garage                @relation(fields: [garageId], references: [id])
+  auditEntries  InventoryAuditEntry[]
+  purchaseItems PurchaseOrderItem[]
+  srUsages      SRInventoryUsage[]
+}
+
+model PurchaseOrder {
+  id          String    @id @default(cuid())
+  garageId    String
+  vendorName  String
+  billNumber  String?
+  billDate    DateTime?
+  totalAmount Decimal?  @db.Decimal(10, 2)
+  billFileUrl String?
+  notes       String?
+  createdAt   DateTime  @default(now())
+
+  garage Garage              @relation(fields: [garageId], references: [id])
+  items  PurchaseOrderItem[]
+}
+
+model PurchaseOrderItem {
+  id              String  @id @default(cuid())
+  purchaseOrderId String
+  inventoryItemId String
+  quantity        Decimal @db.Decimal(10, 3)
+  unitPrice       Decimal @db.Decimal(10, 2)
+  total           Decimal @db.Decimal(10, 2)
+
+  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+  inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id])
+}
+
+model InventoryAuditEntry {
+  id              String             @id @default(cuid())
+  inventoryItemId String
+  type            InventoryAuditType
+  actorId         String?
+  actorName       String?
+  oldQty          Decimal?           @db.Decimal(10, 3)
+  newQty          Decimal?           @db.Decimal(10, 3)
+  oldPrice        Decimal?           @db.Decimal(10, 2)
+  newPrice        Decimal?           @db.Decimal(10, 2)
+  comment         String?
+  fileUrl         String?
+  relatedSrId     String?
+  createdAt       DateTime           @default(now())
+
+  inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id])
+}
+
+model SRInventoryUsage {
+  id               String  @id @default(cuid())
+  serviceRequestId String
+  inventoryItemId  String
+  quantity         Decimal @db.Decimal(10, 3)
+  unitPrice        Decimal @db.Decimal(10, 2)
+  total            Decimal @db.Decimal(10, 2)
+
+  serviceRequest ServiceRequest @relation(fields: [serviceRequestId], references: [id])
+  inventoryItem  InventoryItem  @relation(fields: [inventoryItemId], references: [id])
+}
+
+// ─── Invoice ──────────────────────────────────────────────────────────────────
+
+model Invoice {
+  id               String         @id @default(cuid())
+  garageId         String
+  serviceRequestId String?
+  invoiceNumber    String         @unique
+  status           InvoiceStatus  @default(DRAFT)
+  subtotal         Decimal        @db.Decimal(10, 2)
+  taxPercent       Decimal        @default(0) @db.Decimal(5, 2)
+  taxAmount        Decimal        @default(0) @db.Decimal(10, 2)
+  discountAmount   Decimal        @default(0) @db.Decimal(10, 2)
+  total            Decimal        @db.Decimal(10, 2)
+  paidAmount       Decimal        @default(0) @db.Decimal(10, 2)
+  paymentMethod    PaymentMethod?
+  paidAt           DateTime?
+  dueDate          DateTime?
+  notes            String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  garage         Garage          @relation(fields: [garageId], references: [id])
+  serviceRequest ServiceRequest? @relation(fields: [serviceRequestId], references: [id])
+  items          InvoiceItem[]
+}
+
+model InvoiceItem {
+  id          String  @id @default(cuid())
+  invoiceId   String
+  description String
+  quantity    Int     @default(1)
+  unitPrice   Decimal @db.Decimal(10, 2)
+  total       Decimal @db.Decimal(10, 2)
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id])
+}
+
+// ─── Leads ────────────────────────────────────────────────────────────────────
+
+model Lead {
+  id          String     @id @default(cuid())
+  garageId    String
+  customerId  String?
+  name        String
+  phone       String
+  email       String?
+  vehicleInfo String?
+  source      String?
+  status      LeadStatus @default(NEW)
+  notes       String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  garage    Garage     @relation(fields: [garageId], references: [id])
+  customer  Customer?  @relation(fields: [customerId], references: [id])
+  followUps FollowUp[]
+}
+
+model FollowUp {
+  id          String    @id @default(cuid())
+  leadId      String
+  actorId     String?
+  note        String
+  scheduledAt DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  lead Lead @relation(fields: [leadId], references: [id])
+}
+
+// ─── Attendance ───────────────────────────────────────────────────────────────
+
+model AttendanceRecord {
+  id            String           @id @default(cuid())
+  garageId      String
+  mechanicId    String
+  date          DateTime         @db.Date
+  status        AttendanceStatus
+  overtimeHours Float?
+  markedById    String?
+  notes         String?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  garage   Garage   @relation(fields: [garageId], references: [id])
+  mechanic Mechanic @relation(fields: [mechanicId], references: [id])
+
+  @@unique([mechanicId, date])
+}
