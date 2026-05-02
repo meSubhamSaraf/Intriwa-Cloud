@@ -31,7 +31,11 @@ export async function requireAuth(): Promise<AuthContext> {
     throw NextResponse.json({ error: "Profile not found — contact your admin" }, { status: 403 });
   }
 
-  return { userId: user.id, profile, garageId: profile.garageId ?? "" };
+  if (!profile.garageId) {
+    throw NextResponse.json({ error: "Account has no garage — contact your admin" }, { status: 403 });
+  }
+
+  return { userId: user.id, profile, garageId: profile.garageId };
 }
 
 // withAuth wraps simple routes (no dynamic params)
@@ -44,8 +48,9 @@ export function withAuth(
       return await handler(req, ctx);
     } catch (e) {
       if (e instanceof NextResponse) return e;
-      console.error("[API error]", e);
-      return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[API error]", msg, e);
+      return NextResponse.json({ error: "Internal server error", detail: msg }, { status: 500 });
     }
   };
 }
@@ -60,8 +65,9 @@ export function withAuthParams<P = Record<string, string>>(
       return await handler(req, ctx, resolvedParams);
     } catch (e) {
       if (e instanceof NextResponse) return e;
-      console.error("[API error]", e);
-      return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[API error]", msg, e);
+      return NextResponse.json({ error: "Internal server error", detail: msg }, { status: 500 });
     }
   };
 }

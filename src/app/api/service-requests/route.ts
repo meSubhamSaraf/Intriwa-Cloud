@@ -14,6 +14,16 @@ export const GET = withAuth(async (_req, { garageId }) => {
 
 export const POST = withAuth(async (req, { garageId }) => {
   const body = await req.json();
-  const sr = await srService.create({ ...body, garageId });
+  const sr = await srService.create({
+    garageId,
+    customerId:   body.customerId   || undefined,
+    vehicleId:    body.vehicleId    || undefined,
+    societyId:    body.societyId    || undefined,
+    mechanicId:   body.mechanicId   || undefined,
+    locationType: body.locationType || undefined,
+    complaint:    body.complaint    || undefined,
+    scheduledAt:  body.scheduledAt  ? new Date(body.scheduledAt) : undefined,
+    notes:        body.notes        || undefined,
+  });
   return NextResponse.json(sr, { status: 201 });
 });

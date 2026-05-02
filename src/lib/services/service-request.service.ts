@@ -24,6 +24,7 @@ export type CreateSRInput = {
   locationType?: "GARAGE" | "SOCIETY" | "FIELD";
   complaint?: string;
   scheduledAt?: Date;
+  notes?: string;
 };
 
 export type UpdateSRInput = Partial<
@@ -62,9 +63,30 @@ export class ServiceRequestService {
 
   async create(input: CreateSRInput): Promise<ServiceRequest> {
     const year = new Date().getFullYear();
-    const count = await prisma.serviceRequest.count();
-    const srNumber = `SR-${year}-${String(count + 1).padStart(4, "0")}`;
-    return prisma.serviceRequest.create({ data: { ...input, srNumber } });
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      // Count per garage so each garage has its own sequential numbering
+      const count = await prisma.serviceRequest.count({
+        where: { garageId: input.garageId },
+      });
+      const srNumber = `SR-${year}-${String(count + 1).padStart(4, "0")}`;
+      try {
+        return await prisma.serviceRequest.create({ data: { ...input, srNumber } });
+      } catch (err: unknown) {
+        // P2002 = unique constraint violation (srNumber collision) — retry
+        if (
+          attempt < 4 &&
+          err !== null &&
+          typeof err === "object" &&
+          "code" in err &&
+          (err as { code: string }).code === "P2002"
+        ) {
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw new Error("Could not generate a unique SR number after 5 attempts");
   }
 
   async updateStatus(
