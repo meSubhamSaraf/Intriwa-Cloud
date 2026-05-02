@@ -169,7 +169,7 @@ export default function ServiceRequestDetailPage() {
 
   useEffect(() => {
     fetch(`/api/service-requests/${id}`)
-      .then((r) => r.json())
+      .then((r) => r.ok ? r.json() : null)
       .then(setSr)
       .finally(() => setLoading(false));
   }, [id]);

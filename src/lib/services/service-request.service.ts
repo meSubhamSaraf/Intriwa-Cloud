@@ -49,7 +49,9 @@ export class ServiceRequestService {
         customer: true,
         vehicle: true,
         mechanic: true,
-        items: true,
+        items: {
+          include: { assignedMechanic: { select: { id: true, name: true } } },
+        },
         addOns: true,
         timelineEvents: { orderBy: { createdAt: "asc" } },
         inventoryUsages: { include: { inventoryItem: true } },

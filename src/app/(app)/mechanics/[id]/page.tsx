@@ -499,8 +499,8 @@ function EarningsTab({ mechanicId }: { mechanicId: string }) {
 
   useEffect(() => {
     fetch(`/api/mechanics/${mechanicId}/earnings`)
-      .then(r => r.json())
-      .then(data => { setPayouts(data.payouts ?? []); setSummary(data.summary ?? null); })
+      .then(r => r.ok ? r.json() : { payouts: [], summary: null })
+      .then((data: { payouts?: unknown[]; summary?: unknown }) => { setPayouts((data.payouts ?? []) as never); setSummary((data.summary ?? null) as never); })
       .finally(() => setLoading(false));
   }, [mechanicId]);
 
@@ -580,7 +580,7 @@ function AuditTab({ mechanicId }: { mechanicId: string }) {
 
   useEffect(() => {
     fetch(`/api/mechanics/${mechanicId}/audit`)
-      .then(r => r.json())
+      .then(r => r.ok ? r.json() : [])
       .then(setLogs)
       .finally(() => setLoading(false));
   }, [mechanicId]);

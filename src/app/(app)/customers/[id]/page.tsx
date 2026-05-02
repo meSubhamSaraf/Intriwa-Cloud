@@ -332,7 +332,7 @@ function OpportunitiesTab({ customerId, customerName }: { customerId: string; cu
 
   useEffect(() => {
     fetch(`/api/observations?customerId=${customerId}`)
-      .then(r => r.json())
+      .then(r => r.ok ? r.json() : [])
       .then(setObservations)
       .finally(() => setLoading(false));
   }, [customerId]);
@@ -587,7 +587,7 @@ export default function CustomerProfilePage() {
 
   useEffect(() => {
     fetch(`/api/customers/${id}`)
-      .then((r) => r.json())
+      .then((r) => r.ok ? r.json() : null)
       .then(setCustomer)
       .finally(() => setLoading(false));
   }, [id]);
