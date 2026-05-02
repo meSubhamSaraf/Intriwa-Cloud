@@ -63,17 +63,23 @@ export class ServiceRequestService {
 
   async create(input: CreateSRInput): Promise<ServiceRequest> {
     const year = new Date().getFullYear();
+    const prefix = `SR-${year}-`;
 
     for (let attempt = 0; attempt < 5; attempt++) {
-      // Count per garage so each garage has its own sequential numbering
-      const count = await prisma.serviceRequest.count({
-        where: { garageId: input.garageId },
+      // Find the highest existing srNumber for this year (desc text sort works
+      // because numbers are zero-padded to 4 digits, so alpha == numeric order)
+      const last = await prisma.serviceRequest.findFirst({
+        where: { srNumber: { startsWith: prefix } },
+        orderBy: { srNumber: "desc" },
+        select: { srNumber: true },
       });
-      const srNumber = `SR-${year}-${String(count + 1).padStart(4, "0")}`;
+      const lastNum = last ? (parseInt(last.srNumber.slice(prefix.length)) || 0) : 0;
+      const srNumber = `${prefix}${String(lastNum + 1).padStart(4, "0")}`;
+
       try {
         return await prisma.serviceRequest.create({ data: { ...input, srNumber } });
       } catch (err: unknown) {
-        // P2002 = unique constraint violation (srNumber collision) — retry
+        // P2002 = unique constraint violation — next iteration reads a fresh max
         if (
           attempt < 4 &&
           err !== null &&
