@@ -8,7 +8,7 @@ type Rule = {
   id: string;
   name: string;
   description?: string;
-  conditionType: "JOBS_COUNT" | "AVG_RATING" | "REVENUE";
+  conditionType: "JOBS_COUNT" | "AVG_RATING" | "REVENUE" | "OBSERVATIONS_CONVERTED";
   conditionPeriod: "DAILY" | "WEEKLY" | "MONTHLY";
   conditionValue: number;
   bonusType: "FIXED" | "PERCENT";
@@ -18,14 +18,16 @@ type Rule = {
 };
 
 const CONDITION_LABELS = {
-  JOBS_COUNT: "Jobs completed (entire SRs closed)",
-  AVG_RATING: "Average customer rating",
-  REVENUE:    "Revenue generated (₹)",
+  JOBS_COUNT:             "Jobs completed (entire SRs closed)",
+  AVG_RATING:             "Average customer rating",
+  REVENUE:                "Revenue generated (₹)",
+  OBSERVATIONS_CONVERTED: "Observations converted to bookings",
 };
 const CONDITION_LABELS_SHORT = {
-  JOBS_COUNT: "Jobs completed",
-  AVG_RATING: "Average rating",
-  REVENUE:    "Revenue generated",
+  JOBS_COUNT:             "Jobs completed",
+  AVG_RATING:             "Average rating",
+  REVENUE:                "Revenue generated",
+  OBSERVATIONS_CONVERTED: "Observations converted",
 };
 const PERIOD_LABELS = { DAILY: "per day", WEEKLY: "per week", MONTHLY: "per month" };
 
@@ -37,13 +39,17 @@ function ruleDescription(r: Rule) {
   return `If ${cond} → ${bonus}`;
 }
 
-const BLANK_FORM = {
+const BLANK_FORM: {
+  name: string; description: string;
+  conditionType: Rule["conditionType"]; conditionPeriod: Rule["conditionPeriod"];
+  conditionValue: number; bonusType: Rule["bonusType"]; bonusAmount: number; appliesToType: string;
+} = {
   name: "",
   description: "",
-  conditionType: "JOBS_COUNT" as Rule["conditionType"],
-  conditionPeriod: "MONTHLY" as Rule["conditionPeriod"],
+  conditionType: "JOBS_COUNT",
+  conditionPeriod: "MONTHLY",
   conditionValue: 10,
-  bonusType: "FIXED" as Rule["bonusType"],
+  bonusType: "FIXED",
   bonusAmount: 500,
   appliesToType: "",
 };
@@ -83,10 +89,16 @@ function RuleForm({
                 <option value="JOBS_COUNT">Jobs completed</option>
                 <option value="AVG_RATING">Avg rating</option>
                 <option value="REVENUE">Revenue ₹</option>
+                <option value="OBSERVATIONS_CONVERTED">Observations converted</option>
               </select>
               {form.conditionType === "JOBS_COUNT" && (
                 <p className="text-[10px] text-slate-400 mt-1 flex items-start gap-1">
                   <Info className="w-3 h-3 mt-0.5 shrink-0" /> Counts entire SRs closed (READY or CLOSED status)
+                </p>
+              )}
+              {form.conditionType === "OBSERVATIONS_CONVERTED" && (
+                <p className="text-[10px] text-slate-400 mt-1 flex items-start gap-1">
+                  <Info className="w-3 h-3 mt-0.5 shrink-0" /> Counts observations raised by this mechanic that moved to BOOKED status
                 </p>
               )}
             </div>

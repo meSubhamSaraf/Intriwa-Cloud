@@ -102,6 +102,14 @@ export class PayoutService {
           },
         });
         metricValue = Number(rev._sum.total ?? 0);
+      } else if (rule.conditionType === "OBSERVATIONS_CONVERTED") {
+        metricValue = await prisma.customerObservation.count({
+          where: {
+            raisedById: mechanicId,
+            status: "BOOKED",
+            updatedAt: { gte: periodStart, lte: periodEnd },
+          },
+        });
       }
 
       if (metricValue > threshold) {

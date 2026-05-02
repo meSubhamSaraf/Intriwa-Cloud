@@ -144,9 +144,23 @@ enum PayoutStatus {
 
 // Incentive rule conditions
 enum IncentiveCondition {
-  JOBS_COUNT // number of SRs closed in the period
-  AVG_RATING // average customer rating in the period
-  REVENUE // total invoice value generated in the period
+  JOBS_COUNT             // number of SRs closed in the period
+  AVG_RATING             // average customer rating in the period
+  REVENUE                // total invoice value generated in the period
+  OBSERVATIONS_CONVERTED // observations that became booked SRs in the period
+}
+
+enum ObservationSeverity {
+  URGENT   // needs attention within 30 days
+  ROUTINE  // address at next service
+  COSMETIC // aesthetic only
+}
+
+enum ObservationStatus {
+  NEW
+  FOLLOWED_UP
+  BOOKED    // converted to a new SR
+  DISMISSED
 }
 
 enum IncentivePeriod {
@@ -185,6 +199,7 @@ model Garage {
   invoices          Invoice[]
   incentiveRules    IncentiveRule[]
   mechanicPayouts   MechanicPayout[]
+  observations      CustomerObservation[]
 }
 
 // ─── Profile (Auth Users) ─────────────────────────────────────────────────────
@@ -242,6 +257,7 @@ model Customer {
   vehicles        Vehicle[]
   leads           Lead[]
   serviceRequests ServiceRequest[]
+  observations    CustomerObservation[]
 }
 
 // ─── Vehicle ──────────────────────────────────────────────────────────────────
@@ -267,6 +283,7 @@ model Vehicle {
 
   customer        Customer         @relation(fields: [customerId], references: [id])
   serviceRequests ServiceRequest[]
+  observations    CustomerObservation[]
 }
 
 // ─── Mechanic ─────────────────────────────────────────────────────────────────
@@ -320,7 +337,8 @@ model Mechanic {
   payouts           MechanicPayout[]
   auditLogs         MechanicAuditLog[]
   locationHistory   MechanicLocationHistory[]
-  serviceItems      ServiceItem[] // items assigned to this mechanic
+  serviceItems      ServiceItem[]
+  observations      CustomerObservation[]
 }
 
 // ─── Skills ───────────────────────────────────────────────────────────────────
@@ -697,4 +715,32 @@ model AttendanceRecord {
   mechanic Mechanic @relation(fields: [mechanicId], references: [id])
 
   @@unique([mechanicId, date])
+}
+
+// ─── Customer Observations ────────────────────────────────────────────────────
+// Mechanic/washer flags an issue observed during a job.
+// Ops manager can follow up, book a new SR, or dismiss.
+// When status → BOOKED the mechanic who raised it earns an incentive bonus.
+
+model CustomerObservation {
+  id            String              @id @default(cuid())
+  garageId      String
+  customerId    String
+  vehicleId     String?
+  srId          String?             // source SR where observation was raised
+  raisedById    String?             // mechanic / employee who flagged it
+  raisedByName  String?             // denormalized for display after staff changes
+  description   String
+  severity      ObservationSeverity @default(ROUTINE)
+  estimatedCost Decimal?            @db.Decimal(10, 2)
+  status        ObservationStatus   @default(NEW)
+  convertedSrId String?             // SR that was booked as a result
+  followUpNote  String?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  garage   Garage    @relation(fields: [garageId], references: [id])
+  customer Customer  @relation(fields: [customerId], references: [id])
+  vehicle  Vehicle?  @relation(fields: [vehicleId], references: [id])
+  raisedBy Mechanic? @relation(fields: [raisedById], references: [id])
 }

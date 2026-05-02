@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import {
   ArrowLeft, Car, MapPin, Wrench, Package,
   Phone, Navigation, CheckCircle2, Clock,
-  Home, Building2, User,
+  Home, Building2, User, Eye, X, AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -20,15 +20,23 @@ type SR = {
   locationType: "GARAGE" | "FIELD" | "SOCIETY";
   complaint: string | null;
   scheduledAt: string | null;
+  customerId: string | null;
+  vehicleId: string | null;
   customer: { name: string; phone: string; address: string | null } | null;
   vehicle: { make: string; model: string; regNumber: string | null; fuelType: string } | null;
-  mechanic: { name: string } | null;
+  mechanic: { id: string; name: string } | null;
   items: { id: string; description: string; quantity: number; unitPrice: number | null }[];
   inventoryUsages: {
     id: string;
     quantity: number;
     inventoryItem: { name: string };
   }[];
+};
+
+type ObsForm = {
+  description: string;
+  severity: "URGENT" | "ROUTINE" | "COSMETIC";
+  estimatedCost: string;
 };
 
 const STATUS_DISPLAY: Record<string, string> = {
@@ -40,6 +48,12 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 const STATUS_FLOW = ["OPEN", "IN_PROGRESS", "WAITING_PARTS", "READY", "CLOSED"] as const;
+
+const SEVERITY_LABELS: Record<string, string> = {
+  URGENT: "Urgent (< 30 days)",
+  ROUTINE: "Routine (next service)",
+  COSMETIC: "Cosmetic only",
+};
 
 function nextStatus(current: string): string | null {
   const idx = STATUS_FLOW.indexOf(current as typeof STATUS_FLOW[number]);
@@ -58,12 +72,17 @@ function fmtDateTime(iso: string) {
   });
 }
 
+const BLANK_OBS: ObsForm = { description: "", severity: "ROUTINE", estimatedCost: "" };
+
 export default function FieldSRPage() {
   const { id } = useParams() as { id: string };
   const router = useRouter();
   const [sr, setSr] = useState<SR | null>(null);
   const [loading, setLoading] = useState(true);
   const [advancing, setAdvancing] = useState(false);
+  const [showObsForm, setShowObsForm] = useState(false);
+  const [obsForm, setObsForm] = useState<ObsForm>(BLANK_OBS);
+  const [savingObs, setSavingObs] = useState(false);
 
   useEffect(() => {
     fetch(`/api/service-requests/${id}`)
@@ -90,6 +109,37 @@ export default function FieldSRPage() {
       }
     } finally {
       setAdvancing(false);
+    }
+  }
+
+  async function submitObservation(e: React.FormEvent) {
+    e.preventDefault();
+    if (!sr?.customerId) return;
+    setSavingObs(true);
+    try {
+      const res = await fetch("/api/observations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customerId:   sr.customerId,
+          vehicleId:    sr.vehicleId || null,
+          srId:         sr.id,
+          raisedById:   sr.mechanic?.id || null,
+          raisedByName: sr.mechanic?.name || null,
+          description:  obsForm.description,
+          severity:     obsForm.severity,
+          estimatedCost: obsForm.estimatedCost ? Number(obsForm.estimatedCost) : null,
+        }),
+      });
+      if (res.ok) {
+        toast.success("Observation logged — ops team will follow up");
+        setShowObsForm(false);
+        setObsForm(BLANK_OBS);
+      } else {
+        toast.error("Failed to save observation");
+      }
+    } finally {
+      setSavingObs(false);
     }
   }
 
@@ -265,11 +315,95 @@ export default function FieldSRPage() {
         )}
       </div>
 
+      {/* Flag an observation */}
+      {sr.customerId && (
+        <div className="bg-white border border-slate-200 rounded-xl p-4">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Observations</p>
+          </div>
+          <p className="text-xs text-slate-500 mb-3">Spot something else that needs attention? Flag it so the ops team can follow up with the customer.</p>
+          <button
+            onClick={() => setShowObsForm(true)}
+            className="w-full h-10 flex items-center justify-center gap-2 border border-dashed border-amber-300 text-amber-700 text-sm font-medium rounded-xl hover:bg-amber-50 transition-colors"
+          >
+            <Eye className="w-4 h-4" /> Flag an observation
+          </button>
+        </div>
+      )}
+
       {/* Assigned mechanic */}
       {sr.mechanic && (
         <div className="flex items-center gap-2 text-xs text-slate-400 justify-center pb-2">
           <Clock className="w-3.5 h-3.5" />
           Assigned to {sr.mechanic.name}
+        </div>
+      )}
+
+      {/* Observation form modal */}
+      {showObsForm && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-5">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-amber-500" />
+                <h3 className="font-semibold text-slate-800 text-sm">Flag Observation</h3>
+              </div>
+              <button onClick={() => setShowObsForm(false)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <form onSubmit={submitObservation} className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1.5">What did you observe?</label>
+                <textarea
+                  value={obsForm.description}
+                  onChange={e => setObsForm(f => ({ ...f, description: e.target.value }))}
+                  rows={3}
+                  placeholder="e.g. Front brake pads are worn down, rear bumper has a dent…"
+                  required
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-amber-400 resize-none"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1.5">Urgency</label>
+                  <select
+                    value={obsForm.severity}
+                    onChange={e => setObsForm(f => ({ ...f, severity: e.target.value as ObsForm["severity"] }))}
+                    className="w-full h-9 px-3 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-amber-400"
+                  >
+                    <option value="URGENT">Urgent (&lt;30 days)</option>
+                    <option value="ROUTINE">Routine (next service)</option>
+                    <option value="COSMETIC">Cosmetic</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1.5">Est. cost (₹, optional)</label>
+                  <input
+                    type="number"
+                    value={obsForm.estimatedCost}
+                    onChange={e => setObsForm(f => ({ ...f, estimatedCost: e.target.value }))}
+                    min={0}
+                    placeholder="0"
+                    className="w-full h-9 px-3 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-amber-400"
+                  />
+                </div>
+              </div>
+              <p className="text-[11px] text-slate-400">
+                The ops team will follow up with the customer. If it converts to a booking, you may earn an incentive bonus.
+              </p>
+              <div className="flex gap-2 pt-1">
+                <button type="button" onClick={() => setShowObsForm(false)}
+                  className="flex-1 h-10 border border-slate-200 text-sm text-slate-600 rounded-xl hover:bg-slate-50">
+                  Cancel
+                </button>
+                <button type="submit" disabled={savingObs}
+                  className="flex-1 h-10 bg-amber-500 text-white text-sm font-medium rounded-xl hover:bg-amber-600 disabled:opacity-60">
+                  {savingObs ? "Saving…" : "Submit"}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </div>

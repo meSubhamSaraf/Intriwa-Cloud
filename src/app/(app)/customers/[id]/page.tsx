@@ -6,7 +6,8 @@ import Link from "next/link";
 import {
   ArrowLeft, Phone, MessageCircle, Wrench, Edit2,
   Car, Calendar, Shield, FileText, ChevronDown, ChevronUp,
-  Plus, Clock, Send, MapPin, TrendingUp,
+  Plus, Clock, Send, MapPin, TrendingUp, Eye, AlertTriangle,
+  CheckCircle2, X, ChevronRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -73,14 +74,49 @@ const STATUS_DISPLAY: Record<string, string> = {
   OPEN: "open", IN_PROGRESS: "in_progress", WAITING_PARTS: "waiting_parts", READY: "ready", CLOSED: "closed",
 };
 
+// ── Observation type ──────────────────────────────────────────────
+
+type Observation = {
+  id: string;
+  description: string;
+  severity: "URGENT" | "ROUTINE" | "COSMETIC";
+  estimatedCost: number | null;
+  status: "NEW" | "FOLLOWED_UP" | "BOOKED" | "DISMISSED";
+  followUpNote: string | null;
+  raisedByName: string | null;
+  srId: string | null;
+  convertedSrId: string | null;
+  createdAt: string;
+  vehicle: { make: string; model: string; regNumber: string | null } | null;
+};
+
+const SEVERITY_COLORS: Record<string, string> = {
+  URGENT:   "text-red-700 bg-red-50 border-red-200",
+  ROUTINE:  "text-amber-700 bg-amber-50 border-amber-200",
+  COSMETIC: "text-slate-600 bg-slate-100 border-slate-200",
+};
+const SEVERITY_LABELS: Record<string, string> = {
+  URGENT: "Urgent", ROUTINE: "Routine", COSMETIC: "Cosmetic",
+};
+const OBS_STATUS_COLORS: Record<string, string> = {
+  NEW: "text-blue-700 bg-blue-50",
+  FOLLOWED_UP: "text-violet-700 bg-violet-50",
+  BOOKED: "text-green-700 bg-green-50",
+  DISMISSED: "text-slate-500 bg-slate-100",
+};
+const OBS_STATUS_LABELS: Record<string, string> = {
+  NEW: "New", FOLLOWED_UP: "Followed up", BOOKED: "Booked", DISMISSED: "Dismissed",
+};
+
 // ── Tab types ─────────────────────────────────────────────────────
 
-type TabId = "overview" | "vehicles" | "history" | "notes";
+type TabId = "overview" | "vehicles" | "history" | "opportunities" | "notes";
 const TABS: { id: TabId; label: string }[] = [
-  { id: "overview",  label: "Overview" },
-  { id: "vehicles",  label: "Vehicles" },
-  { id: "history",   label: "Service History" },
-  { id: "notes",     label: "Notes" },
+  { id: "overview",      label: "Overview" },
+  { id: "vehicles",      label: "Vehicles" },
+  { id: "history",       label: "Service History" },
+  { id: "opportunities", label: "Opportunities" },
+  { id: "notes",         label: "Notes" },
 ];
 
 // ── Overview tab ──────────────────────────────────────────────────
@@ -287,6 +323,151 @@ function ServiceHistoryTab({ customer }: { customer: Customer }) {
   );
 }
 
+// ── Opportunities tab ─────────────────────────────────────────────
+
+function OpportunitiesTab({ customerId, customerName }: { customerId: string; customerName: string }) {
+  const [observations, setObservations] = useState<Observation[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch(`/api/observations?customerId=${customerId}`)
+      .then(r => r.json())
+      .then(setObservations)
+      .finally(() => setLoading(false));
+  }, [customerId]);
+
+  async function updateStatus(id: string, status: Observation["status"], note?: string) {
+    setUpdatingId(id);
+    const res = await fetch(`/api/observations/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status, ...(note !== undefined ? { followUpNote: note } : {}) }),
+    });
+    setUpdatingId(null);
+    if (res.ok) {
+      const updated = await res.json();
+      setObservations(prev => prev.map(o => o.id === id ? { ...o, ...updated } : o));
+      toast.success(status === "DISMISSED" ? "Dismissed" : status === "FOLLOWED_UP" ? "Marked as followed up" : "Status updated");
+    } else {
+      toast.error("Failed to update");
+    }
+  }
+
+  if (loading) return <div className="text-sm text-slate-400 py-8 text-center">Loading…</div>;
+
+  const active = observations.filter(o => o.status !== "DISMISSED" && o.status !== "BOOKED");
+  const converted = observations.filter(o => o.status === "BOOKED");
+  const dismissed = observations.filter(o => o.status === "DISMISSED");
+
+  if (observations.length === 0) {
+    return (
+      <div className="text-center py-16 text-slate-400">
+        <Eye className="w-8 h-8 mx-auto mb-2 opacity-30" />
+        <p className="text-sm font-medium">No observations yet</p>
+        <p className="text-xs mt-1">Mechanics flag issues from the Field View while servicing {customerName}&apos;s vehicle.</p>
+      </div>
+    );
+  }
+
+  function ObsCard({ obs }: { obs: Observation }) {
+    const isBusy = updatingId === obs.id;
+    return (
+      <div className={`bg-white border rounded-lg p-4 ${obs.status === "DISMISSED" ? "opacity-50" : ""}`}>
+        <div className="flex items-start gap-3">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap mb-1">
+              <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded border ${SEVERITY_COLORS[obs.severity]}`}>
+                {SEVERITY_LABELS[obs.severity]}
+              </span>
+              <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${OBS_STATUS_COLORS[obs.status]}`}>
+                {OBS_STATUS_LABELS[obs.status]}
+              </span>
+              {obs.vehicle && (
+                <span className="text-[10px] text-slate-500">{obs.vehicle.make} {obs.vehicle.model}{obs.vehicle.regNumber ? ` · ${obs.vehicle.regNumber}` : ""}</span>
+              )}
+            </div>
+            <p className="text-sm text-slate-800 leading-snug">{obs.description}</p>
+            <div className="flex items-center gap-3 mt-1.5 text-[10px] text-slate-400 flex-wrap">
+              {obs.raisedByName && <span>By {obs.raisedByName}</span>}
+              <span>{fmtDate(obs.createdAt)}</span>
+              {obs.estimatedCost && <span>Est. ₹{Number(obs.estimatedCost).toLocaleString("en-IN")}</span>}
+            </div>
+            {obs.followUpNote && (
+              <p className="text-[11px] text-violet-600 mt-1.5 bg-violet-50 rounded px-2 py-1">{obs.followUpNote}</p>
+            )}
+          </div>
+        </div>
+
+        {obs.status !== "DISMISSED" && obs.status !== "BOOKED" && (
+          <div className="flex items-center gap-2 mt-3 pt-3 border-t border-slate-100">
+            {obs.status === "NEW" && (
+              <button
+                onClick={() => updateStatus(obs.id, "FOLLOWED_UP")}
+                disabled={isBusy}
+                className="flex items-center gap-1 text-[11px] font-medium text-violet-700 bg-violet-50 hover:bg-violet-100 px-2.5 py-1.5 rounded border border-violet-200 transition-colors disabled:opacity-60"
+              >
+                <Clock className="w-3 h-3" /> Mark followed up
+              </button>
+            )}
+            <Link
+              href={`/services/new?customerId=${customerId}${obs.vehicle ? `&vehicleId=TODO` : ""}`}
+              onClick={() => updateStatus(obs.id, "BOOKED")}
+              className="flex items-center gap-1 text-[11px] font-medium text-green-700 bg-green-50 hover:bg-green-100 px-2.5 py-1.5 rounded border border-green-200 transition-colors"
+            >
+              <Wrench className="w-3 h-3" /> Book SR
+            </Link>
+            <button
+              onClick={() => updateStatus(obs.id, "DISMISSED")}
+              disabled={isBusy}
+              className="flex items-center gap-1 text-[11px] font-medium text-slate-500 hover:text-red-600 px-2.5 py-1.5 rounded transition-colors disabled:opacity-60 ml-auto"
+            >
+              <X className="w-3 h-3" /> Dismiss
+            </button>
+          </div>
+        )}
+        {obs.status === "BOOKED" && obs.convertedSrId && (
+          <div className="mt-2 pt-2 border-t border-slate-100">
+            <Link href={`/services/${obs.convertedSrId}`}
+              className="inline-flex items-center gap-1 text-[11px] text-green-700 hover:underline">
+              <CheckCircle2 className="w-3 h-3" /> View booked SR <ChevronRight className="w-3 h-3" />
+            </Link>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      {active.length > 0 && (
+        <div>
+          <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Open ({active.length})</h3>
+          <div className="space-y-3">
+            {active.map(o => <ObsCard key={o.id} obs={o} />)}
+          </div>
+        </div>
+      )}
+      {converted.length > 0 && (
+        <div>
+          <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Converted to Bookings ({converted.length})</h3>
+          <div className="space-y-3">
+            {converted.map(o => <ObsCard key={o.id} obs={o} />)}
+          </div>
+        </div>
+      )}
+      {dismissed.length > 0 && (
+        <div>
+          <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Dismissed ({dismissed.length})</h3>
+          <div className="space-y-3">
+            {dismissed.map(o => <ObsCard key={o.id} obs={o} />)}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Notes tab ─────────────────────────────────────────────────────
 
 function NotesTab({ customer }: { customer: Customer }) {
@@ -451,10 +632,11 @@ export default function CustomerProfilePage() {
       </div>
 
       <div className="flex-1 overflow-y-auto p-5">
-        {activeTab === "overview"  && <OverviewTab customer={customer} />}
-        {activeTab === "vehicles"  && <VehiclesTab customer={customer} />}
-        {activeTab === "history"   && <ServiceHistoryTab customer={customer} />}
-        {activeTab === "notes"     && <NotesTab customer={customer} />}
+        {activeTab === "overview"      && <OverviewTab customer={customer} />}
+        {activeTab === "vehicles"      && <VehiclesTab customer={customer} />}
+        {activeTab === "history"       && <ServiceHistoryTab customer={customer} />}
+        {activeTab === "opportunities" && <OpportunitiesTab customerId={customer.id} customerName={customer.name} />}
+        {activeTab === "notes"         && <NotesTab customer={customer} />}
       </div>
     </div>
   );
