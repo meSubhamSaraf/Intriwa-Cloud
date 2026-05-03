@@ -1,26 +1,17 @@
+"use client";
+
+import { useState, useEffect } from "react";
 import Link from "next/link";
-import {
-  CalendarDays, UserPlus, Phone, Wrench,
-  UserCog, Receipt,
-} from "lucide-react";
-import { todaysAppointments, serviceRequests } from "@/lib/mock-data/serviceRequests";
-import { leads } from "@/lib/mock-data/leads";
-import { mechanics } from "@/lib/mock-data/mechanics";
-import { todaysFollowUps, overdueFollowUps } from "@/lib/mock-data/followUps";
-import { pendingInvoices, pendingInvoiceTotal } from "@/lib/mock-data/invoices";
+import { CalendarDays, UserPlus, Phone, Wrench, UserCog, Receipt } from "lucide-react";
 
-function fmt(n: number) {
-  return n.toLocaleString("en-IN");
-}
-
-const doorstepCount = todaysAppointments.filter((s) => s.locationType === "doorstep").length;
-const garageCount = todaysAppointments.filter((s) => s.locationType === "garage").length;
-const activeNow = serviceRequests.filter((s) => s.status === "in_progress" || s.status === "on_the_way").length;
-const openLeads = leads.filter((l) => l.status !== "lost" && l.status !== "booked").length;
-const newTodayLeads = leads.filter((l) => l.createdAt.startsWith("2026-04-26")).length;
-const freeMechanics = mechanics.filter((m) => m.currentStatus === "free").length;
-const busyMechanics = mechanics.filter((m) => m.currentStatus !== "free" && m.currentStatus !== "off_duty").length;
-const followUpsDueCount = todaysFollowUps.length + overdueFollowUps.length;
+type Stats = {
+  todaysJobs: number;
+  openLeads: number;
+  activeMechanics: number;
+  pendingInvoices: number;
+  overdueInvoices: number;
+  revenueThisMonth: number;
+};
 
 interface KpiCardProps {
   icon: React.ElementType;
@@ -50,55 +41,64 @@ function KpiCard({ icon: Icon, label, value, sub, href, alert }: KpiCardProps) {
 }
 
 export function KpiBar() {
+  const [stats, setStats] = useState<Stats | null>(null);
+
+  useEffect(() => {
+    fetch("/api/dashboard/stats")
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => { if (data) setStats(data); });
+  }, []);
+
+  const s = stats;
+
   return (
     <div className="flex gap-3 mb-4">
       <KpiCard
         icon={CalendarDays}
         label="Today's Jobs"
-        value={todaysAppointments.length}
-        sub={`${doorstepCount} doorstep · ${garageCount} garage`}
+        value={s?.todaysJobs ?? "—"}
+        sub="scheduled or opened today"
         href="/services"
       />
       <KpiCard
         icon={UserPlus}
         label="Open Leads"
-        value={openLeads}
-        sub={<>{newTodayLeads > 0 && <span className="text-blue-600 font-medium">+{newTodayLeads} new today</span>}</>}
+        value={s?.openLeads ?? "—"}
+        sub="active in pipeline"
         href="/leads"
-      />
-      <KpiCard
-        icon={Phone}
-        label="Follow-ups Today"
-        value={followUpsDueCount}
-        sub={
-          overdueFollowUps.length > 0
-            ? <span className="text-red-600 font-medium">{overdueFollowUps.length} overdue</span>
-            : "All on schedule"
-        }
-        href="/leads"
-        alert={overdueFollowUps.length > 0}
       />
       <KpiCard
         icon={Wrench}
-        label="Active Now"
-        value={activeNow}
-        sub="in progress / on the way"
-        href="/services"
-      />
-      <KpiCard
-        icon={UserCog}
-        label="Mechanics"
-        value={`${freeMechanics}/${mechanics.length}`}
-        sub={`${freeMechanics} free · ${busyMechanics} busy`}
+        label="Active Mechanics"
+        value={s?.activeMechanics ?? "—"}
+        sub="clocked in now"
         href="/mechanics"
       />
       <KpiCard
-        icon={Receipt}
+        icon={UserCog}
         label="Pending Invoices"
-        value={pendingInvoices.length}
-        sub={`₹${fmt(pendingInvoiceTotal)}`}
-        href="/services"
-        alert={pendingInvoices.some((i) => i.status === "overdue")}
+        value={s?.pendingInvoices ?? "—"}
+        sub={
+          s?.overdueInvoices
+            ? <span className="text-red-600 font-medium">{s.overdueInvoices} overdue</span>
+            : "awaiting payment"
+        }
+        href="/invoices"
+        alert={(s?.overdueInvoices ?? 0) > 0}
+      />
+      <KpiCard
+        icon={Receipt}
+        label="Revenue This Month"
+        value={s ? "₹" + Math.round(s.revenueThisMonth).toLocaleString("en-IN") : "—"}
+        sub="from paid invoices"
+        href="/invoices"
+      />
+      <KpiCard
+        icon={Phone}
+        label="Follow-ups"
+        value="—"
+        sub="coming soon"
+        href="/leads"
       />
     </div>
   );

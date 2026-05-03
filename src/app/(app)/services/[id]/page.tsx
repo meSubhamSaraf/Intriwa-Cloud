@@ -165,6 +165,10 @@ export default function ServiceRequestDetailPage() {
   const [loading, setLoading] = useState(true);
   const [advancing, setAdvancing] = useState(false);
 
+  // Invoice
+  const [raisingInvoice, setRaisingInvoice] = useState(false);
+  const [raisedInvoiceId, setRaisedInvoiceId] = useState<string | null>(null);
+
   // Mechanic assignment
   const [mechanics, setMechanics] = useState<MechanicOption[]>([]);
   const [showMechPicker, setShowMechPicker] = useState(false);
@@ -348,6 +352,27 @@ export default function ServiceRequestDetailPage() {
     }
   }
 
+  async function raiseInvoice() {
+    setRaisingInvoice(true);
+    try {
+      const res = await fetch(`/api/service-requests/${id}/invoice`, { method: "POST" });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); toast.error(e.error ?? "Failed to raise invoice"); return; }
+      const inv = await res.json();
+      setRaisedInvoiceId(inv.id);
+      setSr(prev => prev ? { ...prev, status: "CLOSED" } : prev);
+      toast.success(`Invoice ${inv.invoiceNumber} raised — sending to customer now`);
+      // Auto-send
+      fetch(`/api/invoices/${inv.id}/send`, { method: "POST" })
+        .then(r => r.json())
+        .then(d => {
+          if (d.paymentLinkUrl) toast.success("Payment link sent to customer");
+          else if (d.cashfreeError) toast.info("Invoice raised — configure Cashfree to auto-send payment links");
+        });
+    } finally {
+      setRaisingInvoice(false);
+    }
+  }
+
   if (loading) return <div className="p-8 text-slate-400 text-sm">Loading service request…</div>;
   if (!sr) return <div className="p-8 text-slate-400 text-sm">Service request not found.</div>;
 
@@ -448,6 +473,20 @@ export default function ServiceRequestDetailPage() {
                   <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
                 </button>
               </>
+            )}
+            {sr.status === "READY" && !raisedInvoiceId && (
+              <button onClick={raiseInvoice} disabled={raisingInvoice || closingBlocked}
+                className="flex items-center gap-1.5 text-xs font-medium bg-green-700 text-white hover:bg-green-800 px-3 py-1.5 rounded transition-colors disabled:opacity-60"
+                title={closingBlocked ? "Approve all mechanic-added parts first" : undefined}>
+                <Receipt className="w-3.5 h-3.5" />
+                {raisingInvoice ? "Raising…" : "Raise Invoice"}
+              </button>
+            )}
+            {raisedInvoiceId && (
+              <Link href={`/invoices/${raisedInvoiceId}`}
+                className="flex items-center gap-1.5 text-xs font-medium bg-green-700 text-white hover:bg-green-800 px-3 py-1.5 rounded transition-colors">
+                <Receipt className="w-3.5 h-3.5" /> View Invoice
+              </Link>
             )}
             {next && (
               <div className="flex flex-col items-end gap-1">
@@ -577,6 +616,19 @@ export default function ServiceRequestDetailPage() {
                   </p>
                 )}
               </>
+            )}
+            {sr.status === "READY" && !raisedInvoiceId && (
+              <button onClick={raiseInvoice} disabled={raisingInvoice || closingBlocked}
+                className="mt-3 w-full flex items-center justify-center gap-1.5 text-sm font-medium bg-green-700 text-white hover:bg-green-800 py-2 rounded-md transition-colors disabled:opacity-60">
+                <Receipt className="w-4 h-4" />
+                {raisingInvoice ? "Raising invoice…" : "Raise & Send Invoice"}
+              </button>
+            )}
+            {raisedInvoiceId && (
+              <Link href={`/invoices/${raisedInvoiceId}`}
+                className="mt-3 w-full flex items-center justify-center gap-1.5 text-sm font-medium bg-green-700 text-white hover:bg-green-800 py-2 rounded-md transition-colors">
+                <Receipt className="w-4 h-4" /> View Invoice
+              </Link>
             )}
             {sr.status === "CLOSED" && (
               <div className="mt-2 flex items-center gap-1.5 text-[12px] text-green-700 font-medium">

@@ -1,16 +1,22 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { ArrowLeft, Save, Car, User, MapPin, Calendar, Tag, FileText } from "lucide-react";
 import { toast } from "sonner";
-import { users } from "@/lib/mock-data/users";
-import { societies } from "@/lib/mock-data/societies";
 
-// ── Schema ────────────────────────────────────────────────────────
+// ── Types ─────────────────────────────────────────────────────────────
+
+interface Society {
+  id: string;
+  name: string;
+  address?: string;
+}
+
+// ── Schema ────────────────────────────────────────────────────────────
 
 const schema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -22,9 +28,9 @@ const schema = z.object({
   vehicleYear: z.string().optional(),
   vehicleReg: z.string().optional(),
   issueDescription: z.string().optional(),
-  preliminaryDiagnosis: z.string().optional(),
   source: z.enum(["call", "society", "walkin", "whatsapp", "referral", "other"]),
   societyId: z.string().optional(),
+  neighbourhood: z.string().optional(),
   preferredServiceType: z.enum(["doorstep", "garage", "either"]).optional(),
   schedulingPreference: z.enum(["specific", "range", "anytime"]).optional(),
   preferredDate: z.string().optional(),
@@ -32,12 +38,13 @@ const schema = z.object({
   preferredDateTo: z.string().optional(),
   tags: z.array(z.string()).optional(),
   notes: z.string().optional(),
-  assignedOpsId: z.string().min(1, "Assign to someone"),
   followUpDate: z.string().optional(),
   followUpTime: z.string().optional(),
 });
 
 type FormValues = z.infer<typeof schema>;
+
+// ── Constants ─────────────────────────────────────────────────────────
 
 const ALL_TAGS = ["Flexible", "VIP", "Price-sensitive", "Premium", "Fleet"];
 
@@ -48,7 +55,7 @@ const VEHICLE_MAKES = [
   "Honda (2W)", "Royal Enfield", "Other",
 ];
 
-// ── Section wrapper ───────────────────────────────────────────────
+// ── Section wrapper ───────────────────────────────────────────────────
 
 function Section({
   icon: Icon,
@@ -75,7 +82,7 @@ function Section({
   );
 }
 
-// ── Field helpers ─────────────────────────────────────────────────
+// ── Field helpers ─────────────────────────────────────────────────────
 
 function FieldLabel({ children, required }: { children: React.ReactNode; required?: boolean }) {
   return (
@@ -95,11 +102,20 @@ const inputCls = "w-full h-9 px-3 text-sm border border-slate-200 rounded-md bg-
 const textareaCls = "w-full px-3 py-2 text-sm border border-slate-200 rounded-md bg-white text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-brand-navy-400 transition-colors resize-none";
 const selectCls = "w-full h-9 px-3 text-sm border border-slate-200 rounded-md bg-white text-slate-800 focus:outline-none focus:border-brand-navy-400 transition-colors";
 
-// ── Main form ─────────────────────────────────────────────────────
+// ── Main form ─────────────────────────────────────────────────────────
 
 export default function NewLeadPage() {
   const router = useRouter();
-  const opsUsers = users.filter((u) => u.role === "ops" || u.role === "admin");
+  const [societies, setSocieties] = useState<Society[]>([]);
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+
+  // Fetch societies for the dropdown
+  useEffect(() => {
+    fetch("/api/societies")
+      .then((r) => r.json())
+      .then((data) => setSocieties(Array.isArray(data) ? data : []))
+      .catch(() => {/* non-critical, societies just won't show */});
+  }, []);
 
   const {
     register,
@@ -115,11 +131,8 @@ export default function NewLeadPage() {
       schedulingPreference: "anytime",
       tags: [],
       followUpTime: "10:00",
-      assignedOpsId: "u3",
     },
   });
-
-  const [selectedTags, setSelectedTags] = useState<string[]>([]);
 
   const source = watch("source");
   const scheduling = watch("schedulingPreference");
@@ -132,9 +145,47 @@ export default function NewLeadPage() {
     setValue("tags", next);
   }
 
-  function onSubmit(_data: unknown) {
-    toast.success("Lead created (mock) — opening lead detail");
-    setTimeout(() => router.push("/leads/l1"), 600);
+  async function onSubmit(data: FormValues) {
+    // Build vehicleInfo only if at least one field is filled
+    const hasVehicle = data.vehicleMake || data.vehicleModel || data.vehicleYear;
+    const vehicleInfo = hasVehicle
+      ? { make: data.vehicleMake, model: data.vehicleModel, year: data.vehicleYear }
+      : undefined;
+
+    // Build followUpAt ISO string
+    let followUpAt: string | undefined;
+    if (data.followUpDate) {
+      const time = data.followUpTime ?? "10:00";
+      followUpAt = new Date(`${data.followUpDate}T${time}:00`).toISOString();
+    }
+
+    const body: Record<string, unknown> = {
+      name: data.name,
+      phone: data.phone,
+      source: data.source,
+    };
+    if (data.email) body.email = data.email;
+    if (vehicleInfo) body.vehicleInfo = vehicleInfo;
+    if (data.neighbourhood) body.neighbourhood = data.neighbourhood;
+    if (data.notes) body.notes = data.notes;
+    if (followUpAt) body.followUpAt = followUpAt;
+
+    try {
+      const res = await fetch("/api/leads", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error ?? "Failed to create lead");
+      }
+      const created = await res.json();
+      toast.success("Lead created");
+      router.push(`/leads/${created.id}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Something went wrong");
+    }
   }
 
   return (
@@ -207,16 +258,12 @@ export default function NewLeadPage() {
 
         {/* 3. Issue */}
         <Section icon={FileText} title="Issue" optional>
-          <div className="space-y-3">
-            <div>
-              <FieldLabel>Issue description</FieldLabel>
-              <textarea {...register("issueDescription")} rows={3} placeholder="What's the problem? In customer's words…" className={textareaCls} />
-            </div>
-            <div>
-              <FieldLabel>Preliminary diagnosis</FieldLabel>
-              <textarea {...register("preliminaryDiagnosis")} rows={2} placeholder="Ops/mechanic's quick read…" className={textareaCls} />
-            </div>
-          </div>
+          <textarea
+            {...register("issueDescription")}
+            rows={3}
+            placeholder="What's the problem? In customer's words…"
+            className={textareaCls}
+          />
         </Section>
 
         {/* 4. Source */}
@@ -242,11 +289,15 @@ export default function NewLeadPage() {
                 </select>
               </div>
             )}
+            <div>
+              <FieldLabel>Neighbourhood / Area</FieldLabel>
+              <input {...register("neighbourhood")} placeholder="e.g. Koramangala" className={inputCls} />
+            </div>
           </div>
         </Section>
 
         {/* 5. Preference */}
-        <Section icon={MapPin} title="Service Preference">
+        <Section icon={MapPin} title="Service Preference" optional>
           <div className="space-y-4">
             <div>
               <FieldLabel>Service type</FieldLabel>
@@ -330,17 +381,9 @@ export default function NewLeadPage() {
           />
         </Section>
 
-        {/* 8. Assignment + Follow-up */}
-        <Section icon={Calendar} title="Assignment & Follow-up">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <FieldLabel required>Assign to</FieldLabel>
-              <select {...register("assignedOpsId")} className={selectCls}>
-                {opsUsers.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-              </select>
-              <FieldError message={errors.assignedOpsId?.message} />
-            </div>
-            <div />
+        {/* 8. Follow-up */}
+        <Section icon={Calendar} title="Follow-up" optional>
+          <div className="grid grid-cols-2 gap-3 max-w-sm">
             <div>
               <FieldLabel>Initial follow-up date</FieldLabel>
               <input type="date" {...register("followUpDate")} className={inputCls} />

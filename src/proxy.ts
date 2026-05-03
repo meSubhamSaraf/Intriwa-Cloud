@@ -61,11 +61,13 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(homeUrl);
   }
 
-  // Mechanics may only access /mechanic-portal and API/auth routes
+  // Mechanics may only access their portal, individual service pages, and API/auth routes
   if (user && user.user_metadata?.role === "MECHANIC") {
-    const allowed = pathname.startsWith("/mechanic-portal") ||
-                    pathname.startsWith("/api/") ||
-                    pathname.startsWith("/auth/");
+    const allowed =
+      pathname.startsWith("/mechanic-portal") ||
+      pathname.startsWith("/services/") ||
+      pathname.startsWith("/api/") ||
+      pathname.startsWith("/auth/");
     if (!allowed) {
       const portalUrl = request.nextUrl.clone();
       portalUrl.pathname = "/mechanic-portal";

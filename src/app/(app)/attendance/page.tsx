@@ -1,14 +1,11 @@
 "use client";
 
 import { useState, useEffect, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
 import {
   ChevronLeft, ChevronRight, CheckCircle2, XCircle,
-  Clock, AlertCircle, Save, Calendar, FlaskConical,
+  Clock, AlertCircle, Save, Calendar,
 } from "lucide-react";
-import Link from "next/link";
-import { mechanics as mockMechanics } from "@/lib/mock-data/mechanics";
-import { attendanceRecords as mockRecords, type AttendanceStatus } from "@/lib/mock-data/attendance";
+import { type AttendanceStatus } from "@/lib/mock-data/attendance";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -38,8 +35,6 @@ function dbRecordToDisplay(r: DbRecord): DisplayRecord {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────
-
-const MOCK_TODAY = "2026-04-28";
 
 function isoToDisplay(iso: string) {
   return new Date(iso).toLocaleDateString("en-IN", {
@@ -89,27 +84,24 @@ const STATUS_CONFIG: Record<AttendanceStatus, { label: string; short: string; co
 // ── Page ──────────────────────────────────────────────────────────
 
 function AttendancePageInner() {
-  const searchParams = useSearchParams();
-  const isMock = searchParams.get("mock") === "true";
-
-  const today = isMock ? MOCK_TODAY : new Date().toISOString().slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
   const currentMonth = today.slice(0, 7);
 
   const [viewDate, setViewDate] = useState(today);
   const [tab, setTab] = useState<"daily" | "monthly">("daily");
-  const [monthAnchor, setMonthAnchor] = useState(isMock ? "2026-04" : currentMonth);
+  const [monthAnchor, setMonthAnchor] = useState(currentMonth);
 
   const [dbMechanics, setDbMechanics] = useState<DisplayMechanic[]>([]);
   const [dbRecords, setDbRecords]     = useState<DisplayRecord[]>([]);
-  const [loading, setLoading]         = useState(!isMock);
+  const [loading, setLoading]         = useState(true);
 
   const [overrides, setOverrides]         = useState<Record<string, AttendanceStatus>>({});
   const [overtimeHours, setOvertimeHours] = useState<Record<string, number>>({});
   const [saved, setSaved]                 = useState(false);
 
   useEffect(() => {
-    if (isMock) { setLoading(false); return; }
     const [y, m] = monthAnchor.split("-").map(Number);
+    setLoading(true);
     Promise.all([
       fetch("/api/mechanics").then((r) => r.json()),
       fetch(`/api/attendance?year=${y}&month=${m}`).then((r) => r.json()),
@@ -120,10 +112,10 @@ function AttendancePageInner() {
       })
       .catch(() => toast.error("Failed to load attendance data"))
       .finally(() => setLoading(false));
-  }, [isMock, monthAnchor]);
+  }, [monthAnchor]);
 
-  const mechanics     = isMock ? mockMechanics.map(m => ({ id: m.id, name: m.name, skills: m.skills, employmentType: m.employmentType })) : dbMechanics;
-  const allRecords    = isMock ? mockRecords.map(r => ({ mechanicId: r.mechanicId, date: r.date, status: r.status as AttendanceStatus, overtimeHours: r.overtimeHours })) : dbRecords;
+  const mechanics  = dbMechanics;
+  const allRecords = dbRecords;
 
   function getRecord(mechId: string, date: string) {
     return allRecords.find((r) => r.mechanicId === mechId && r.date === date);
@@ -142,11 +134,6 @@ function AttendancePageInner() {
   }
 
   async function saveAttendance() {
-    if (isMock) {
-      setSaved(true);
-      toast.success("Attendance saved for " + isoToDisplay(viewDate));
-      return;
-    }
     const entries = mechanics.map((m) => {
       const key = `${m.id}-${viewDate}`;
       const status = overrides[key] ?? getRecord(m.id, viewDate)?.status ?? "absent";
@@ -175,18 +162,6 @@ function AttendancePageInner() {
 
   return (
     <div className="p-4 max-w-5xl">
-      {/* Mock mode banner */}
-      <div className={`mb-3 flex items-center gap-2 text-[11px] font-medium px-3 py-2 rounded-lg border ${isMock ? "bg-amber-50 border-amber-200 text-amber-700" : "bg-green-50 border-green-200 text-green-700"}`}>
-        <FlaskConical className="w-3.5 h-3.5 shrink-0" />
-        {isMock ? "Showing mock / sample data." : "Showing live database data."}
-        <Link
-          href={isMock ? "/attendance" : "/attendance?mock=true"}
-          className="ml-auto underline underline-offset-2 hover:opacity-80"
-        >
-          Switch to {isMock ? "live data" : "mock data"}
-        </Link>
-      </div>
-
       {/* Header */}
       <div className="mb-4 flex items-center justify-between flex-wrap gap-3">
         <div>

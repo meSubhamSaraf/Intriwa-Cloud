@@ -645,6 +645,9 @@ model Invoice {
   paidAt           DateTime?
   dueDate          DateTime?
   notes            String?
+  cashfreeOrderId  String?
+  paymentLinkUrl   String?
+  sentAt           DateTime?
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
 
@@ -667,18 +670,21 @@ model InvoiceItem {
 // ─── Leads ────────────────────────────────────────────────────────────────────
 
 model Lead {
-  id          String     @id @default(cuid())
-  garageId    String
-  customerId  String?
-  name        String
-  phone       String
-  email       String?
-  vehicleInfo String?
-  source      String?
-  status      LeadStatus @default(NEW)
-  notes       String?
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  id             String     @id @default(cuid())
+  garageId       String
+  customerId     String?
+  name           String
+  phone          String
+  email          String?
+  vehicleInfo    String?
+  source         String?
+  status         LeadStatus @default(NEW)
+  notes          String?
+  neighbourhood  String?
+  assignedOpsId  String?
+  followUpAt     DateTime?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
 
   garage    Garage     @relation(fields: [garageId], references: [id])
   customer  Customer?  @relation(fields: [customerId], references: [id])

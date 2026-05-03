@@ -1,18 +1,47 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Plus, Search, Car, ArrowRight, UserPlus, MapPin, ChevronDown, Download } from "lucide-react";
+import {
+  Plus, Search, Car, ArrowRight, UserPlus, MapPin, ChevronDown, Download, Loader2,
+} from "lucide-react";
 import { toast } from "sonner";
 import { downloadCsv } from "@/lib/csv";
 import { StatusBadge } from "@/components/ui/StatusBadge";
-import { UserAvatar } from "@/components/ui/UserAvatar";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { leads } from "@/lib/mock-data/leads";
-import { users } from "@/lib/mock-data/users";
 
-const BANGALORE_AREAS = ["Whitefield","Marathahalli","Indiranagar","Koramangala","JP Nagar","HSR Layout","Electronic City","Kanakapura Road","Subramanyapura","Bannerghatta Road","Hebbal","Malleswaram","MG Road","Devanahalli","Yelahanka","Sarjapur Road","Old Airport Road","Lavelle Road"];
+// ── Types ────────────────────────────────────────────────────────────
+
+interface VehicleInfo {
+  make?: string;
+  model?: string;
+  year?: string | number;
+  fuelType?: string;
+}
+
+interface Lead {
+  id: string;
+  name: string;
+  phone: string;
+  email?: string;
+  vehicleInfo?: string | VehicleInfo | null;
+  source: string;
+  status: string;
+  neighbourhood?: string;
+  assignedOpsId?: string;
+  followUpAt?: string;
+  notes?: string;
+  createdAt: string;
+}
+
+// ── Constants ────────────────────────────────────────────────────────
+
+const BANGALORE_AREAS = [
+  "Whitefield","Marathahalli","Indiranagar","Koramangala","JP Nagar","HSR Layout",
+  "Electronic City","Kanakapura Road","Subramanyapura","Bannerghatta Road","Hebbal",
+  "Malleswaram","MG Road","Devanahalli","Yelahanka","Sarjapur Road","Old Airport Road","Lavelle Road",
+];
 
 const sourceLabels: Record<string, string> = {
   call: "Call", society: "Society", walkin: "Walk-in",
@@ -27,10 +56,29 @@ const sourceColors: Record<string, string> = {
   other: "text-slate-600 bg-slate-100 border-slate-200",
 };
 
+const STATUS_TABS = [
+  { value: "all", label: "All" },
+  { value: "NEW", label: "New" },
+  { value: "CONTACTED", label: "Contacted" },
+  { value: "QUALIFIED", label: "Qualified" },
+  { value: "CONVERTED", label: "Converted" },
+  { value: "LOST", label: "Lost" },
+];
+
+// ── Helpers ──────────────────────────────────────────────────────────
+
+function parseVehicleInfo(raw?: string | VehicleInfo | null): VehicleInfo | null {
+  if (!raw) return null;
+  if (typeof raw === "object") return raw;
+  try { return JSON.parse(raw); } catch { return null; }
+}
+
 function fmtDate(iso?: string) {
   if (!iso) return "—";
   return new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
 }
+
+// ── AreaMultiFilter ───────────────────────────────────────────────────
 
 function AreaMultiFilter({ selected, onChange }: { selected: string[]; onChange: (v: string[]) => void }) {
   const [open, setOpen] = useState(false);
@@ -55,7 +103,9 @@ function AreaMultiFilter({ selected, onChange }: { selected: string[]; onChange:
     <div className="relative">
       <button
         onClick={() => setOpen((v) => !v)}
-        className={`h-8 px-2.5 text-sm border rounded-md bg-white flex items-center gap-1.5 transition-colors ${selected.length > 0 ? "border-brand-navy-400 text-brand-navy-700" : "border-slate-200 text-slate-700 hover:border-brand-navy-300"}`}
+        className={`h-8 px-2.5 text-sm border rounded-md bg-white flex items-center gap-1.5 transition-colors ${
+          selected.length > 0 ? "border-brand-navy-400 text-brand-navy-700" : "border-slate-200 text-slate-700 hover:border-brand-navy-300"
+        }`}
       >
         <MapPin className="w-3.5 h-3.5 text-slate-400" />
         {selected.length === 0 ? "All areas" : `${selected.length} area${selected.length > 1 ? "s" : ""}`}
@@ -101,22 +151,73 @@ function AreaMultiFilter({ selected, onChange }: { selected: string[]; onChange:
   );
 }
 
+// ── Page ─────────────────────────────────────────────────────────────
+
 export default function LeadsPage() {
   const router = useRouter();
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [areaFilters, setAreaFilters] = useState<string[]>([]);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Fetch from API whenever status filter changes
+  useEffect(() => {
+    async function fetchLeads() {
+      setLoading(true);
+      try {
+        const params = new URLSearchParams();
+        if (statusFilter !== "all") params.set("status", statusFilter);
+        const res = await fetch(`/api/leads?${params.toString()}`);
+        if (!res.ok) throw new Error("Failed to fetch leads");
+        const data = await res.json();
+        setLeads(data.leads ?? []);
+        setTotalCount(data.count ?? (data.leads?.length ?? 0));
+      } catch (err) {
+        toast.error("Could not load leads");
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchLeads();
+  }, [statusFilter]);
+
+  // Client-side filter by search + area (from already-loaded leads)
   const filtered = leads.filter((l) => {
+    const vehicle = parseVehicleInfo(l.vehicleInfo);
     const matchQuery =
       !query ||
       l.name.toLowerCase().includes(query.toLowerCase()) ||
       l.phone.includes(query) ||
-      (l.vehicleInfo?.make?.toLowerCase().includes(query.toLowerCase()) ?? false);
-    const matchStatus = statusFilter === "all" || l.status === statusFilter;
+      (vehicle?.make?.toLowerCase().includes(query.toLowerCase()) ?? false) ||
+      (vehicle?.model?.toLowerCase().includes(query.toLowerCase()) ?? false);
     const matchArea = areaFilters.length === 0 || areaFilters.includes(l.neighbourhood ?? "");
-    return matchQuery && matchStatus && matchArea;
+    return matchQuery && matchArea;
   });
+
+  function handleSearchChange(value: string) {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => setQuery(value), 300);
+  }
+
+  function exportCsv() {
+    const headers = ["Name", "Phone", "Status", "Source", "Area", "Vehicle Make", "Vehicle Model", "Vehicle Year", "Follow-up Date", "Created"];
+    const rows = filtered.map((l) => {
+      const v = parseVehicleInfo(l.vehicleInfo);
+      return [
+        l.name, l.phone, l.status, l.source, l.neighbourhood ?? "",
+        v?.make ?? "", v?.model ?? "",
+        String(v?.year ?? ""), l.followUpAt ?? "", l.createdAt.slice(0, 10),
+      ];
+    });
+    downloadCsv("leads.csv", headers, rows);
+    toast.success(`Exported ${filtered.length} leads`);
+  }
+
+  const hasFilters = !!query || statusFilter !== "all" || areaFilters.length > 0;
 
   return (
     <div className="p-4">
@@ -124,21 +225,15 @@ export default function LeadsPage() {
       <div className="flex items-center justify-between mb-4">
         <div>
           <h1 className="text-base font-semibold text-slate-800">Leads</h1>
-          <p className="text-[11px] text-slate-500">{filtered.length} of {leads.length}</p>
+          <p className="text-[11px] text-slate-500">
+            {loading ? "Loading…" : `${filtered.length} of ${totalCount}`}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => {
-              const headers = ["Name", "Phone", "Status", "Source", "Area", "Vehicle Make", "Vehicle Model", "Vehicle Year", "Follow-up Date", "Created"];
-              const rows = filtered.map((l) => [
-                l.name, l.phone, l.status, l.source, l.neighbourhood ?? "",
-                l.vehicleInfo?.make ?? "", l.vehicleInfo?.model ?? "",
-                l.vehicleInfo?.year ?? "", l.followUpDate ?? "", l.createdAt.slice(0, 10),
-              ]);
-              downloadCsv("leads.csv", headers, rows);
-              toast.success(`Exported ${filtered.length} leads`);
-            }}
-            className="flex items-center gap-1.5 h-8 px-3 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-md hover:bg-slate-50 transition-colors"
+            onClick={exportCsv}
+            disabled={loading || filtered.length === 0}
+            className="flex items-center gap-1.5 h-8 px-3 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-md hover:bg-slate-50 transition-colors disabled:opacity-40"
           >
             <Download className="w-3.5 h-3.5" /> Export
           </button>
@@ -151,124 +246,137 @@ export default function LeadsPage() {
         </div>
       </div>
 
-      {/* Filters */}
+      {/* Status tabs */}
+      <div className="flex gap-1 mb-3 border-b border-slate-200">
+        {STATUS_TABS.map((tab) => (
+          <button
+            key={tab.value}
+            onClick={() => setStatusFilter(tab.value)}
+            className={`px-3 py-2 text-xs font-medium border-b-2 -mb-px transition-colors ${
+              statusFilter === tab.value
+                ? "border-brand-navy-700 text-brand-navy-700"
+                : "border-transparent text-slate-500 hover:text-slate-700"
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Search + Area filter */}
       <div className="flex gap-2 mb-4 flex-wrap">
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
           <input
             type="text"
             placeholder="Search name, phone, vehicle…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => handleSearchChange(e.target.value)}
             className="h-8 pl-8 pr-3 text-sm bg-white border border-slate-200 rounded-md text-slate-600 placeholder:text-slate-400 focus:outline-none focus:border-brand-navy-400 w-64 transition-colors"
           />
         </div>
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="h-8 px-2.5 text-sm border border-slate-200 rounded-md bg-white text-slate-700 focus:outline-none focus:border-brand-navy-400 transition-colors"
-        >
-          <option value="all">All statuses</option>
-          <option value="new">New</option>
-          <option value="contacted">Contacted</option>
-          <option value="qualified">Qualified</option>
-          <option value="booked">Booked</option>
-          <option value="on_hold">On hold</option>
-          <option value="lost">Lost</option>
-        </select>
         <AreaMultiFilter selected={areaFilters} onChange={setAreaFilters} />
       </div>
 
       {/* Table */}
       <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-slate-200 bg-slate-50">
-              {["Name & Phone", "Vehicle", "Source", "Status", "Area", "Follow-up", "Assigned", "Created", ""].map((h) => (
-                <th key={h} className="px-3 py-2.5 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((lead) => {
-              const ops = users.find((u) => u.id === lead.assignedOpsId);
-              return (
-                <tr key={lead.id} onClick={() => router.push(`/leads/${lead.id}`)} className="border-b border-slate-100 hover:bg-slate-50 transition-colors cursor-pointer">
-                  <td className="px-3 py-2.5">
-                    <p className="font-medium text-slate-800">{lead.name}</p>
-                    <p className="text-[11px] text-slate-400 tabular-nums">{lead.phone}</p>
-                  </td>
-                  <td className="px-3 py-2.5">
-                    {lead.vehicleInfo ? (
-                      <div className="flex items-center gap-1 text-[12px] text-slate-600">
-                        <Car className="w-3 h-3 text-slate-400 shrink-0" />
-                        {lead.vehicleInfo.make} {lead.vehicleInfo.model}
-                        {lead.vehicleInfo.year
-                          ? ` '${String(lead.vehicleInfo.year).slice(2)}`
-                          : ""}
-                      </div>
-                    ) : (
-                      <span className="text-[11px] text-slate-400">—</span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2.5">
-                    <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded border ${sourceColors[lead.source]}`}>
-                      {sourceLabels[lead.source]}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2.5">
-                    <StatusBadge status={lead.status} />
-                  </td>
-                  <td className="px-3 py-2.5">
-                    {lead.neighbourhood ? (
-                      <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded border text-slate-600 bg-slate-50 border-slate-200 whitespace-nowrap">
-                        <MapPin className="w-2.5 h-2.5 text-slate-400" />
-                        {lead.neighbourhood}
-                      </span>
-                    ) : <span className="text-[11px] text-slate-400">—</span>}
-                  </td>
-                  <td className="px-3 py-2.5 text-[12px] tabular-nums">
-                    {lead.followUpDate ? (
-                      <span className={new Date(lead.followUpDate) < new Date("2026-04-26") ? "text-red-600 font-medium" : "text-slate-600"}>
-                        {fmtDate(lead.followUpDate)}
-                      </span>
-                    ) : (
-                      <span className="text-slate-400">—</span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2.5">
-                    {ops && (
-                      <div className="flex items-center gap-1.5">
-                        <UserAvatar name={ops.name} size="xs" />
-                        <span className="text-[12px] text-slate-600">{ops.name.split(" ")[0]}</span>
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-3 py-2.5 text-[12px] text-slate-500 whitespace-nowrap tabular-nums">
-                    {fmtDate(lead.createdAt)}
-                  </td>
-                  <td className="px-3 py-2.5">
-                    <Link
-                      href={`/leads/${lead.id}`}
-                      className="w-7 h-7 flex items-center justify-center rounded text-slate-400 hover:text-brand-navy-600 hover:bg-brand-navy-50 transition-colors"
-                    >
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </Link>
-                  </td>
+        {loading ? (
+          <div className="flex items-center justify-center py-20 gap-2 text-slate-500 text-sm">
+            <Loader2 className="w-4 h-4 animate-spin" /> Loading leads…
+          </div>
+        ) : (
+          <>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50">
+                  {["Name & Phone", "Vehicle", "Source", "Status", "Area", "Follow-up", "Created", ""].map((h) => (
+                    <th key={h} className="px-3 py-2.5 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">
+                      {h}
+                    </th>
+                  ))}
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
-        {filtered.length === 0 && (
-          <EmptyState
-            icon={UserPlus}
-            title={query || statusFilter !== "all" || areaFilters.length > 0 ? "No leads match your filters" : "No leads yet"}
-            description={query || statusFilter !== "all" || areaFilters.length > 0 ? "Try adjusting your search, status, or area filter." : "Create your first lead to start tracking prospects."}
-            action={!query && statusFilter === "all" && areaFilters.length === 0 ? { label: "New Lead", href: "/leads/new" } : undefined}
-          />
+              </thead>
+              <tbody>
+                {filtered.map((lead) => {
+                  const vehicle = parseVehicleInfo(lead.vehicleInfo);
+                  const now = new Date();
+                  return (
+                    <tr
+                      key={lead.id}
+                      onClick={() => router.push(`/leads/${lead.id}`)}
+                      className="border-b border-slate-100 hover:bg-slate-50 transition-colors cursor-pointer"
+                    >
+                      <td className="px-3 py-2.5">
+                        <p className="font-medium text-slate-800">{lead.name}</p>
+                        <p className="text-[11px] text-slate-400 tabular-nums">{lead.phone}</p>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        {vehicle ? (
+                          <div className="flex items-center gap-1 text-[12px] text-slate-600">
+                            <Car className="w-3 h-3 text-slate-400 shrink-0" />
+                            {vehicle.make} {vehicle.model}
+                            {vehicle.year ? ` '${String(vehicle.year).slice(-2)}` : ""}
+                          </div>
+                        ) : (
+                          <span className="text-[11px] text-slate-400">—</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded border ${sourceColors[lead.source] ?? sourceColors.other}`}>
+                          {sourceLabels[lead.source] ?? lead.source}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <StatusBadge status={lead.status.toLowerCase()} />
+                      </td>
+                      <td className="px-3 py-2.5">
+                        {lead.neighbourhood ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded border text-slate-600 bg-slate-50 border-slate-200 whitespace-nowrap">
+                            <MapPin className="w-2.5 h-2.5 text-slate-400" />
+                            {lead.neighbourhood}
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-slate-400">—</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2.5 text-[12px] tabular-nums">
+                        {lead.followUpAt ? (
+                          <span className={new Date(lead.followUpAt) < now ? "text-red-600 font-medium" : "text-slate-600"}>
+                            {fmtDate(lead.followUpAt)}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2.5 text-[12px] text-slate-500 whitespace-nowrap tabular-nums">
+                        {fmtDate(lead.createdAt)}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <Link
+                          href={`/leads/${lead.id}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="w-7 h-7 flex items-center justify-center rounded text-slate-400 hover:text-brand-navy-600 hover:bg-brand-navy-50 transition-colors"
+                        >
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </Link>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {filtered.length === 0 && (
+              <EmptyState
+                icon={UserPlus}
+                title={hasFilters ? "No leads match your filters" : "No leads yet"}
+                description={
+                  hasFilters
+                    ? "Try adjusting your search, status, or area filter."
+                    : "Create your first lead to start tracking prospects."
+                }
+                action={!hasFilters ? { label: "New Lead", href: "/leads/new" } : undefined}
+              />
+            )}
+          </>
         )}
       </div>
     </div>

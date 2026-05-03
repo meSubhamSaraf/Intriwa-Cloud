@@ -82,11 +82,30 @@ function initials(name: string) {
 
 // ── Add Item Modal ────────────────────────────────────────────────
 
+async function uploadPhoto(file: File, path: string): Promise<string | null> {
+  try {
+    const signRes = await fetch("/api/upload/sign", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path }),
+    });
+    if (!signRes.ok) return null;
+    const { signedUrl, publicUrl } = await signRes.json();
+    const uploadRes = await fetch(signedUrl, {
+      method: "PUT",
+      headers: { "Content-Type": file.type },
+      body: file,
+    });
+    return uploadRes.ok ? publicUrl : null;
+  } catch { return null; }
+}
+
 function AddItemModal({ srId, onClose, onAdded }: { srId: string; onClose: () => void; onAdded: () => void }) {
   const [description, setDescription] = useState("");
   const [purchasePrice, setPurchasePrice] = useState("");
   const [quantity, setQuantity] = useState(1);
-  const [photoCount, setPhotoCount] = useState(0);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -94,10 +113,18 @@ function AddItemModal({ srId, onClose, onAdded }: { srId: string; onClose: () =>
     e.preventDefault();
     setSaving(true);
     try {
+      let photoUrl: string | null = null;
+      if (photoFile) {
+        setUploading(true);
+        const ext = photoFile.name.split(".").pop() ?? "jpg";
+        photoUrl = await uploadPhoto(photoFile, `addons/${srId}/${Date.now()}.${ext}`);
+        setUploading(false);
+        if (!photoUrl) toast.info("Photo upload failed — item will be saved without photo");
+      }
       const res = await fetch(`/api/service-requests/${srId}/addons`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ description: description.trim(), purchasePrice: Number(purchasePrice), quantity }),
+        body: JSON.stringify({ description: description.trim(), purchasePrice: Number(purchasePrice), quantity, photoUrl }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -109,6 +136,7 @@ function AddItemModal({ srId, onClose, onAdded }: { srId: string; onClose: () =>
       onClose();
     } finally {
       setSaving(false);
+      setUploading(false);
     }
   }
 
@@ -147,18 +175,17 @@ function AddItemModal({ srId, onClose, onAdded }: { srId: string; onClose: () =>
             </div>
           </div>
 
-          {/* Photo */}
           <div>
             <label className="block text-xs font-medium text-slate-600 mb-1">Photo of receipt / item</label>
             <button type="button" onClick={() => fileRef.current?.click()}
               className={`w-full h-10 flex items-center justify-center gap-2 border border-dashed rounded-lg text-sm transition-colors ${
-                photoCount > 0 ? "border-green-400 text-green-700 bg-green-50" : "border-slate-300 text-slate-500 hover:bg-slate-50"
+                photoFile ? "border-green-400 text-green-700 bg-green-50" : "border-slate-300 text-slate-500 hover:bg-slate-50"
               }`}>
               <Camera className="w-4 h-4" />
-              {photoCount > 0 ? `${photoCount} photo(s) taken` : "Take photo"}
+              {photoFile ? photoFile.name.slice(0, 24) : "Take / attach photo"}
             </button>
             <input type="file" accept="image/*" capture="environment" className="hidden" ref={fileRef}
-              onChange={e => { if (e.target.files?.[0]) { setPhotoCount(p => p + 1); e.target.value = ""; } }} />
+              onChange={e => { if (e.target.files?.[0]) setPhotoFile(e.target.files[0]); }} />
           </div>
 
           <p className="text-[10px] text-slate-400">
@@ -170,9 +197,10 @@ function AddItemModal({ srId, onClose, onAdded }: { srId: string; onClose: () =>
               className="flex-1 h-10 border border-slate-200 text-sm text-slate-600 rounded-xl hover:bg-slate-50">
               Cancel
             </button>
-            <button type="submit" disabled={saving}
-              className="flex-1 h-10 bg-brand-navy-800 text-white text-sm font-medium rounded-xl hover:bg-brand-navy-700 disabled:opacity-60">
-              {saving ? "Saving…" : "Add Item"}
+            <button type="submit" disabled={saving || uploading}
+              className="flex-1 h-10 bg-brand-navy-800 text-white text-sm font-medium rounded-xl hover:bg-brand-navy-700 disabled:opacity-60 flex items-center justify-center gap-1.5">
+              {(saving || uploading) && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+              {uploading ? "Uploading…" : saving ? "Saving…" : "Add Item"}
             </button>
           </div>
         </form>
