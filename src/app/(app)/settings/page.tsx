@@ -1,14 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   User, Users, Wrench, HardHat, Bell, MessageSquare,
-  Check, Edit2, Plus, CheckCircle, Wifi, Clock, MapPin, X,
+  Check, Edit2, Plus, CheckCircle, Wifi, Clock, MapPin, X, Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { users } from "@/lib/mock-data/users";
 import { mechanics } from "@/lib/mock-data/mechanics";
-import { serviceCatalog, ServiceCategory } from "@/lib/mock-data/serviceCatalog";
+import type { ServiceCategory } from "@/lib/mock-data/serviceCatalog";
 
 // ── Types & constants ─────────────────────────────────────────────
 
@@ -223,50 +223,90 @@ function TeamTab() {
 
 // ── Tab: Service Catalog ──────────────────────────────────────────
 
-type CatalogItem = typeof serviceCatalog[number] & { active?: boolean };
+type CatalogItem = {
+  id: string; name: string; category: string; description?: string | null;
+  basePrice: number; durationMinutes: number; warrantyDays?: number | null; isActive: boolean;
+};
 
 function CatalogTab() {
   const [catFilter, setCatFilter] = useState<ServiceCategory | "all">("all");
+  const [items, setItems] = useState<CatalogItem[]>([]);
+  const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [localItems, setLocalItems] = useState<CatalogItem[]>(() =>
-    serviceCatalog.map((s) => ({ ...s, active: true }))
-  );
   const [draft, setDraft] = useState<{ name: string; basePrice: number; durationMinutes: number; warrantyDays: number | undefined } | null>(null);
+  const [savingId, setSavingId] = useState<string | null>(null);
   const [addingNew, setAddingNew] = useState(false);
   const [newItem, setNewItem] = useState({ name: "", category: "4W" as ServiceCategory, basePrice: 0, durationMinutes: 60, warrantyDays: 0 });
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/service-catalogue")
+      .then(r => r.ok ? r.json() : [])
+      .then((data: CatalogItem[]) => setItems(data.map(d => ({ ...d, basePrice: Number(d.basePrice) }))))
+      .finally(() => setLoading(false));
+  }, []);
 
   const cats: (ServiceCategory | "all")[] = ["all", "4W", "2W", "AC", "Accessory", "Body", "Wash"];
-  const filtered = catFilter === "all" ? localItems : localItems.filter((s) => s.category === catFilter);
+  const filtered = catFilter === "all" ? items : items.filter((s) => s.category === catFilter);
 
   function startEdit(item: CatalogItem) {
     setEditingId(item.id);
     setDraft({ name: item.name, basePrice: item.basePrice, durationMinutes: item.durationMinutes, warrantyDays: item.warrantyDays ?? undefined });
   }
 
-  function saveEdit(id: string) {
+  async function saveEdit(id: string) {
     if (!draft) return;
-    setLocalItems((prev) => prev.map((s) => s.id === id ? { ...s, ...draft } : s));
-    setEditingId(null);
-    setDraft(null);
-    toast.success("Service updated");
+    setSavingId(id);
+    try {
+      const res = await fetch(`/api/service-catalogue/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...draft, basePrice: Number(draft.basePrice) }),
+      });
+      if (!res.ok) throw new Error();
+      const updated: CatalogItem = await res.json();
+      setItems(prev => prev.map(s => s.id === id ? { ...updated, basePrice: Number(updated.basePrice) } : s));
+      setEditingId(null); setDraft(null);
+      toast.success("Service updated");
+    } catch { toast.error("Failed to update service"); }
+    finally { setSavingId(null); }
   }
 
-  function toggleActive(id: string) {
-    setLocalItems((prev) => prev.map((s) => s.id === id ? { ...s, active: !s.active } : s));
+  async function toggleActive(id: string, current: boolean) {
+    try {
+      const res = await fetch(`/api/service-catalogue/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isActive: !current }),
+      });
+      if (!res.ok) throw new Error();
+      setItems(prev => prev.map(s => s.id === id ? { ...s, isActive: !current } : s));
+    } catch { toast.error("Failed to update"); }
   }
 
-  function addService() {
-    const id = `svc-new-${Date.now()}`;
-    setLocalItems((prev) => [...prev, { ...newItem, id, description: "", active: true }]);
-    setAddingNew(false);
-    setNewItem({ name: "", category: "4W", basePrice: 0, durationMinutes: 60, warrantyDays: 0 });
-    toast.success("Service added");
+  async function addService() {
+    if (!newItem.name.trim()) return;
+    setSaving(true);
+    try {
+      const res = await fetch("/api/service-catalogue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...newItem, basePrice: Number(newItem.basePrice) }),
+      });
+      if (!res.ok) throw new Error();
+      const created: CatalogItem = await res.json();
+      setItems(prev => [...prev, { ...created, basePrice: Number(created.basePrice) }]);
+      setAddingNew(false);
+      setNewItem({ name: "", category: "4W", basePrice: 0, durationMinutes: 60, warrantyDays: 0 });
+      toast.success("Service added");
+    } catch { toast.error("Failed to add service"); }
+    finally { setSaving(false); }
   }
 
   return (
     <div>
       <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-        <SectionLabel>{localItems.length} services configured</SectionLabel>
+        <SectionLabel>{items.length} services configured</SectionLabel>
         <button
           onClick={() => setAddingNew(true)}
           className="flex items-center gap-1.5 text-sm font-medium bg-brand-navy-800 text-white hover:bg-brand-navy-700 px-3 py-1.5 rounded-md transition-colors"
@@ -300,8 +340,8 @@ function CatalogTab() {
             </div>
           </div>
           <div className="flex gap-2">
-            <button onClick={addService} disabled={!newItem.name.trim()} className="flex items-center gap-1.5 px-3 py-1.5 bg-brand-navy-800 text-white text-xs font-medium rounded-md hover:bg-brand-navy-700 disabled:opacity-50">
-              <Check className="w-3 h-3" /> Add
+            <button onClick={addService} disabled={!newItem.name.trim() || saving} className="flex items-center gap-1.5 px-3 py-1.5 bg-brand-navy-800 text-white text-xs font-medium rounded-md hover:bg-brand-navy-700 disabled:opacity-50">
+              {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Add
             </button>
             <button onClick={() => setAddingNew(false)} className="px-3 py-1.5 text-xs text-slate-600 border border-slate-200 rounded-md hover:bg-slate-50">Cancel</button>
           </div>
@@ -334,10 +374,14 @@ function CatalogTab() {
             </tr>
           </thead>
           <tbody>
-            {filtered.map((s) => {
+            {loading ? (
+              <tr><td colSpan={7} className="px-3 py-6 text-center text-slate-400 text-sm"><Loader2 className="w-4 h-4 animate-spin inline mr-2" />Loading…</td></tr>
+            ) : filtered.length === 0 ? (
+              <tr><td colSpan={7} className="px-3 py-6 text-center text-slate-400 text-sm">No services in this category</td></tr>
+            ) : filtered.map((s) => {
               const isEditing = editingId === s.id;
               return (
-                <tr key={s.id} className={`border-b border-slate-100 transition-colors ${isEditing ? "bg-brand-navy-50" : s.active === false ? "opacity-50 hover:bg-slate-50" : "hover:bg-slate-50"}`}>
+                <tr key={s.id} className={`border-b border-slate-100 transition-colors ${isEditing ? "bg-brand-navy-50" : !s.isActive ? "opacity-50 hover:bg-slate-50" : "hover:bg-slate-50"}`}>
                   <td className="px-3 py-2.5">
                     {isEditing ? (
                       <input
@@ -354,8 +398,8 @@ function CatalogTab() {
                     )}
                   </td>
                   <td className="px-3 py-2.5">
-                    <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded border ${CATEGORY_COLORS[s.category]}`}>
-                      {CATEGORY_LABELS[s.category]}
+                    <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded border ${CATEGORY_COLORS[s.category as ServiceCategory] ?? "text-slate-600 bg-slate-50 border-slate-200"}`}>
+                      {CATEGORY_LABELS[s.category as ServiceCategory] ?? s.category}
                     </span>
                   </td>
                   <td className="px-3 py-2.5">
@@ -388,16 +432,18 @@ function CatalogTab() {
                   <td className="px-3 py-2.5 text-[12px] text-slate-500">{s.warrantyDays ? `${s.warrantyDays}d` : "—"}</td>
                   <td className="px-3 py-2.5">
                     <button
-                      onClick={() => toggleActive(s.id)}
-                      className={`w-8 h-4 rounded-full transition-colors relative ${s.active !== false ? "bg-green-500" : "bg-slate-200"}`}
+                      onClick={() => toggleActive(s.id, s.isActive)}
+                      className={`w-8 h-4 rounded-full transition-colors relative ${s.isActive ? "bg-green-500" : "bg-slate-200"}`}
                     >
-                      <span className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform ${s.active !== false ? "translate-x-4" : "translate-x-0.5"}`} />
+                      <span className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform ${s.isActive ? "translate-x-4" : "translate-x-0.5"}`} />
                     </button>
                   </td>
                   <td className="px-3 py-2.5">
                     {isEditing ? (
                       <div className="flex items-center gap-2">
-                        <button onClick={() => saveEdit(s.id)} className="text-[11px] font-medium text-green-600 hover:text-green-800">Save</button>
+                        <button onClick={() => saveEdit(s.id)} disabled={savingId === s.id} className="text-[11px] font-medium text-green-600 hover:text-green-800 flex items-center gap-1 disabled:opacity-60">
+                          {savingId === s.id ? <Loader2 className="w-3 h-3 animate-spin" /> : null}Save
+                        </button>
                         <button onClick={() => { setEditingId(null); setDraft(null); }} className="text-[11px] text-slate-400 hover:text-slate-600">Cancel</button>
                       </div>
                     ) : (

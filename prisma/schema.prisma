@@ -197,9 +197,27 @@ model Garage {
   leads             Lead[]
   attendanceRecords AttendanceRecord[]
   invoices          Invoice[]
-  incentiveRules    IncentiveRule[]
-  mechanicPayouts   MechanicPayout[]
-  observations      CustomerObservation[]
+  incentiveRules         IncentiveRule[]
+  mechanicPayouts        MechanicPayout[]
+  observations           CustomerObservation[]
+  serviceCatalogueItems  ServiceCatalogueItem[]
+}
+
+// ─── Service Catalogue ───────────────────────────────────────────────────────
+
+model ServiceCatalogueItem {
+  id              String   @id @default(cuid())
+  garageId        String
+  name            String
+  category        String
+  basePrice       Decimal  @db.Decimal(10, 2)
+  durationMinutes Int      @default(60)
+  warrantyDays    Int?
+  description     String?
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+
+  garage Garage @relation(fields: [garageId], references: [id])
 }
 
 // ─── Profile (Auth Users) ─────────────────────────────────────────────────────
