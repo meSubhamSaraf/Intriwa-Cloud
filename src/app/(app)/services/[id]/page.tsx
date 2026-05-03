@@ -58,10 +58,22 @@ type SR = {
   timelineEvents: TimelineEvent[];
 };
 
+type AddOn = {
+  id: string;
+  description: string;
+  estimatedCost: number;
+  status: string;
+  notes: string | null;
+};
+
 type MechanicOption = { id: string; name: string; status: string };
 type InventoryOption = { id: string; name: string; stockQty: number; unitPrice: number };
 
 // ── Helpers ────────────────────────────────────────────────────────
+
+function parseAddonNotes(notes: string | null): { sellingPrice?: number | null; quantity?: number } {
+  try { return JSON.parse(notes ?? "{}"); } catch { return {}; }
+}
 
 function fmtDate(iso?: string | null) {
   if (!iso) return "—";
@@ -165,6 +177,11 @@ export default function ServiceRequestDetailPage() {
   const [invQty, setInvQty] = useState(1);
   const [addingInv, setAddingInv] = useState(false);
 
+  // Mechanic-added parts (addons)
+  const [addons, setAddons] = useState<AddOn[]>([]);
+  const [addonPrices, setAddonPrices] = useState<Record<string, string>>({});
+  const [savingAddonId, setSavingAddonId] = useState<string | null>(null);
+
   // Observation form
   const [showObsForm, setShowObsForm] = useState(false);
   const [obsDesc, setObsDesc] = useState("");
@@ -173,10 +190,19 @@ export default function ServiceRequestDetailPage() {
   const [savingObs, setSavingObs] = useState(false);
 
   useEffect(() => {
-    fetch(`/api/service-requests/${id}`)
-      .then((r) => r.ok ? r.json() : null)
-      .then(setSr)
-      .finally(() => setLoading(false));
+    Promise.all([
+      fetch(`/api/service-requests/${id}`).then(r => r.ok ? r.json() : null),
+      fetch(`/api/service-requests/${id}/addons`).then(r => r.ok ? r.json() : []),
+    ]).then(([srData, addonData]: [SR | null, AddOn[]]) => {
+      setSr(srData);
+      setAddons(addonData ?? []);
+      const prices: Record<string, string> = {};
+      for (const a of addonData ?? []) {
+        const { sellingPrice } = parseAddonNotes(a.notes);
+        prices[a.id] = sellingPrice != null ? String(sellingPrice) : "";
+      }
+      setAddonPrices(prices);
+    }).finally(() => setLoading(false));
   }, [id]);
 
   async function loadMechanics() {
@@ -270,6 +296,25 @@ export default function ServiceRequestDetailPage() {
     }
   }
 
+  async function saveAddon(addonId: string, patch: { sellingPrice?: number; status?: string }) {
+    setSavingAddonId(addonId);
+    try {
+      const res = await fetch(`/api/service-requests/${id}/addons/${addonId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      if (!res.ok) { toast.error("Failed to update part"); return; }
+      const updated = await res.json();
+      setAddons(prev => prev.map(a => a.id === addonId ? { ...a, ...updated } : a));
+      if (patch.status === "APPROVED") toast.success("Part approved");
+      if (patch.status === "REJECTED") toast.success("Part rejected");
+      if (patch.sellingPrice != null) toast.success("Selling price saved");
+    } finally {
+      setSavingAddonId(null);
+    }
+  }
+
   async function submitObservation(e: React.FormEvent) {
     e.preventDefault();
     if (!sr?.customer) return;
@@ -308,6 +353,8 @@ export default function ServiceRequestDetailPage() {
 
   const next = nextStatus(sr.status);
   const displayStatus = STATUS_DISPLAY[sr.status] ?? sr.status.toLowerCase();
+  const pendingAddons = addons.filter(a => a.status === "PENDING");
+  const closingBlocked = next === "CLOSED" && pendingAddons.length > 0;
   const itemsTotal = sr.items.reduce((s, i) => s + (i.unitPrice ?? 0) * i.quantity, 0);
   const invTotal   = (sr.inventoryUsages ?? []).reduce((s, u) => s + Number(u.total), 0);
   const total = itemsTotal + invTotal;
@@ -403,11 +450,20 @@ export default function ServiceRequestDetailPage() {
               </>
             )}
             {next && (
-              <button onClick={advanceStatus} disabled={advancing}
-                className="flex items-center gap-1.5 text-xs font-medium bg-brand-navy-800 text-white hover:bg-brand-navy-700 px-3 py-1.5 rounded transition-colors disabled:opacity-60">
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                {advancing ? "Updating…" : `Mark as ${STATUS_LABELS[next]}`}
-              </button>
+              <div className="flex flex-col items-end gap-1">
+                <button onClick={advanceStatus} disabled={advancing || closingBlocked}
+                  className="flex items-center gap-1.5 text-xs font-medium bg-brand-navy-800 text-white hover:bg-brand-navy-700 px-3 py-1.5 rounded transition-colors disabled:opacity-60"
+                  title={closingBlocked ? `${pendingAddons.length} mechanic-added part(s) awaiting approval` : undefined}>
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  {advancing ? "Updating…" : `Mark as ${STATUS_LABELS[next]}`}
+                </button>
+                {closingBlocked && (
+                  <p className="text-[10px] text-amber-600 flex items-center gap-1">
+                    <AlertTriangle className="w-3 h-3" />
+                    {pendingAddons.length} part{pendingAddons.length > 1 ? "s" : ""} pending approval
+                  </p>
+                )}
+              </div>
             )}
           </div>
         </div>
@@ -508,11 +564,19 @@ export default function ServiceRequestDetailPage() {
               })}
             </div>
             {next && (
-              <button onClick={advanceStatus} disabled={advancing}
-                className="mt-3 w-full flex items-center justify-center gap-1.5 text-sm font-medium bg-brand-navy-800 text-white hover:bg-brand-navy-700 py-2 rounded-md transition-colors disabled:opacity-60">
-                <CheckCircle2 className="w-4 h-4" />
-                {advancing ? "Updating…" : `Advance to ${STATUS_LABELS[next]}`}
-              </button>
+              <>
+                <button onClick={advanceStatus} disabled={advancing || closingBlocked}
+                  className="mt-3 w-full flex items-center justify-center gap-1.5 text-sm font-medium bg-brand-navy-800 text-white hover:bg-brand-navy-700 py-2 rounded-md transition-colors disabled:opacity-60">
+                  <CheckCircle2 className="w-4 h-4" />
+                  {advancing ? "Updating…" : `Advance to ${STATUS_LABELS[next]}`}
+                </button>
+                {closingBlocked && (
+                  <p className="mt-1.5 text-[11px] text-amber-600 flex items-center gap-1.5">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                    {pendingAddons.length} mechanic-added part{pendingAddons.length > 1 ? "s are" : " is"} awaiting ops approval before closing
+                  </p>
+                )}
+              </>
             )}
             {sr.status === "CLOSED" && (
               <div className="mt-2 flex items-center gap-1.5 text-[12px] text-green-700 font-medium">
@@ -593,6 +657,100 @@ export default function ServiceRequestDetailPage() {
               </div>
             )}
           </div>
+
+          {/* Mechanic-added parts */}
+          {addons.length > 0 && (
+            <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+                <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">
+                  Parts Added by Mechanic
+                </p>
+                {pendingAddons.length > 0 && (
+                  <span className="text-[10px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded">
+                    {pendingAddons.length} pending
+                  </span>
+                )}
+              </div>
+              <div className="divide-y divide-slate-100">
+                {addons.map(addon => {
+                  const { sellingPrice, quantity = 1 } = parseAddonNotes(addon.notes);
+                  const isSaving = savingAddonId === addon.id;
+                  return (
+                    <div key={addon.id} className="px-4 py-3 space-y-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-slate-800 truncate">{addon.description}</p>
+                          <p className="text-[11px] text-slate-500 mt-0.5">
+                            Purchase price: <span className="font-semibold text-slate-700">₹{Number(addon.estimatedCost).toLocaleString("en-IN")}</span>
+                            {quantity > 1 && <> · qty {quantity}</>}
+                          </p>
+                        </div>
+                        <span className={`shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded border ${
+                          addon.status === "APPROVED" ? "text-green-700 bg-green-50 border-green-200" :
+                          addon.status === "REJECTED" ? "text-red-700 bg-red-50 border-red-200" :
+                          "text-amber-700 bg-amber-50 border-amber-200"
+                        }`}>
+                          {addon.status}
+                        </span>
+                      </div>
+
+                      {addon.status !== "REJECTED" && (
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1">
+                            <label className="block text-[10px] font-medium text-slate-500 mb-1">Selling price (₹)</label>
+                            <input
+                              type="number" min={0}
+                              value={addonPrices[addon.id] ?? ""}
+                              onChange={e => setAddonPrices(prev => ({ ...prev, [addon.id]: e.target.value }))}
+                              placeholder={`e.g. ${Math.round(Number(addon.estimatedCost) * 1.3)}`}
+                              className="w-full h-8 px-2.5 text-sm border border-slate-200 rounded focus:outline-none focus:border-brand-navy-400"
+                            />
+                          </div>
+                          {addonPrices[addon.id] && Number(addonPrices[addon.id]) !== (sellingPrice ?? 0) && (
+                            <button
+                              onClick={() => saveAddon(addon.id, { sellingPrice: Number(addonPrices[addon.id]) })}
+                              disabled={isSaving}
+                              className="mt-5 h-8 px-2.5 text-[11px] font-medium border border-brand-navy-300 text-brand-navy-700 rounded hover:bg-brand-navy-50 disabled:opacity-60"
+                            >
+                              Save
+                            </button>
+                          )}
+                        </div>
+                      )}
+
+                      {addon.status === "PENDING" && (
+                        <div className="flex gap-2 pt-1">
+                          <button
+                            onClick={() => saveAddon(addon.id, { status: "APPROVED", ...(addonPrices[addon.id] ? { sellingPrice: Number(addonPrices[addon.id]) } : {}) })}
+                            disabled={isSaving}
+                            className="flex-1 h-8 text-[12px] font-medium bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-60"
+                          >
+                            {isSaving ? "…" : "Approve"}
+                          </button>
+                          <button
+                            onClick={() => saveAddon(addon.id, { status: "REJECTED" })}
+                            disabled={isSaving}
+                            className="flex-1 h-8 text-[12px] font-medium border border-red-200 text-red-700 rounded hover:bg-red-50 disabled:opacity-60"
+                          >
+                            {isSaving ? "…" : "Reject"}
+                          </button>
+                        </div>
+                      )}
+
+                      {addon.status === "APPROVED" && sellingPrice != null && (
+                        <p className="text-[11px] text-green-700">
+                          Selling price confirmed: ₹{Number(sellingPrice).toLocaleString("en-IN")}
+                          {sellingPrice > 0 && Number(addon.estimatedCost) > 0 && (
+                            <> · {Math.round((sellingPrice / Number(addon.estimatedCost) - 1) * 100)}% markup</>
+                          )}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Notes */}
           {sr.notes && (

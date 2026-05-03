@@ -56,17 +56,21 @@ export async function proxy(request: NextRequest) {
 
   if (user && pathname === "/login") {
     const homeUrl = request.nextUrl.clone();
-    // Mechanics get their own portal; everyone else goes to dashboard
     homeUrl.pathname =
       user.user_metadata?.role === "MECHANIC" ? "/mechanic-portal" : "/dashboard";
     return NextResponse.redirect(homeUrl);
   }
 
-  // Prevent mechanics from accidentally landing on admin pages
-  if (user && user.user_metadata?.role === "MECHANIC" && pathname === "/dashboard") {
-    const portalUrl = request.nextUrl.clone();
-    portalUrl.pathname = "/mechanic-portal";
-    return NextResponse.redirect(portalUrl);
+  // Mechanics may only access /mechanic-portal and API/auth routes
+  if (user && user.user_metadata?.role === "MECHANIC") {
+    const allowed = pathname.startsWith("/mechanic-portal") ||
+                    pathname.startsWith("/api/") ||
+                    pathname.startsWith("/auth/");
+    if (!allowed) {
+      const portalUrl = request.nextUrl.clone();
+      portalUrl.pathname = "/mechanic-portal";
+      return NextResponse.redirect(portalUrl);
+    }
   }
 
   return response;
