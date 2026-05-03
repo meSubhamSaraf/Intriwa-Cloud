@@ -558,7 +558,7 @@ function MechanicsPageInner() {
       {showAdd && (
         <AddMechanicModal
           onClose={() => setShowAdd(false)}
-          onCreated={(m) => router.push(`/mechanics/${m.id}`)}
+          onCreated={(m) => window.open(`/mechanics/${m.id}`, "_blank")}
         />
       )}
     </div>
