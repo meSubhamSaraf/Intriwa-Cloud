@@ -325,7 +325,8 @@ function JobsTab({ mechanic, available, onToggleAvailability, clockingIn }: {
   }
 
   const activeSRs = mechanic.serviceRequests.filter(sr => getStatus(sr.id, sr.status) !== "CLOSED");
-  const completedCount = activeSRs.filter(sr => ["READY", "CLOSED"].includes(getStatus(sr.id, sr.status))).length;
+  const pastSRs = mechanic.serviceRequests.filter(sr => getStatus(sr.id, sr.status) === "CLOSED");
+  const completedCount = activeSRs.filter(sr => ["READY"].includes(getStatus(sr.id, sr.status))).length;
   const today = new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" });
 
   return (
@@ -503,6 +504,38 @@ function JobsTab({ mechanic, available, onToggleAvailability, clockingIn }: {
           </div>
         );
       })}
+
+      {/* Past jobs */}
+      {pastSRs.length > 0 && (
+        <>
+          <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wide pt-2">
+            Past Jobs ({pastSRs.length})
+          </h2>
+          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100">
+            {pastSRs.map(sr => (
+              <div key={sr.id}
+                className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-slate-50 active:opacity-70"
+                onClick={() => window.open(`/services/${sr.id}`, "_blank")}>
+                <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-bold text-slate-500 shrink-0">
+                  {sr.customer ? initials(sr.customer.name) : "?"}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold text-slate-700">{sr.customer?.name ?? "Customer"}</p>
+                  <p className="text-[10px] text-slate-400 font-mono">{sr.srNumber}</p>
+                  {sr.vehicle && (
+                    <p className="text-[10px] text-slate-400">{sr.vehicle.make} {sr.vehicle.model}{sr.vehicle.registrationNumber ? ` · ${sr.vehicle.registrationNumber}` : ""}</p>
+                  )}
+                </div>
+                <div className="flex flex-col items-end gap-1 shrink-0">
+                  <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full text-slate-400 bg-slate-50">Closed</span>
+                  {sr.scheduledAt && <span className="text-[10px] text-slate-400">{fmtDate(sr.scheduledAt)}</span>}
+                </div>
+                <ExternalLink className="w-3.5 h-3.5 text-slate-300 shrink-0" />
+              </div>
+            ))}
+          </div>
+        </>
+      )}
 
       {/* Modals */}
       {addItemFor && (

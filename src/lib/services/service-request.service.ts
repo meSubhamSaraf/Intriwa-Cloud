@@ -131,6 +131,7 @@ export class ServiceRequestService {
       include: {
         items: true,
         inventoryUsages: { include: { inventoryItem: true } },
+        addOns: { where: { status: "APPROVED" } },
       },
     });
 
@@ -138,10 +139,18 @@ export class ServiceRequestService {
     const count = await prisma.invoice.count();
     const invoiceNumber = `INV-${year}-${String(count + 1).padStart(4, "0")}`;
 
-    // Use plain number arithmetic — Prisma Decimal fields accept numbers
+    function parseNotes(notes: string | null): { sellingPrice?: number; quantity?: number } {
+      try { return JSON.parse(notes ?? "{}"); } catch { return {}; }
+    }
+
     const labourTotal = sr.items.reduce((s, i) => s + Number(i.total), 0);
     const partsTotal = sr.inventoryUsages.reduce((s, u) => s + Number(u.total), 0);
-    const subtotal = labourTotal + partsTotal;
+    const addonTotal = sr.addOns.reduce((s, a) => {
+      const { sellingPrice, quantity = 1 } = parseNotes(a.notes);
+      const price = sellingPrice ?? Number(a.estimatedCost);
+      return s + price * quantity;
+    }, 0);
+    const subtotal = labourTotal + partsTotal + addonTotal;
 
     const invoice = await prisma.$transaction(async (tx) => {
       const inv = await tx.invoice.create({
@@ -165,6 +174,16 @@ export class ServiceRequestService {
                 unitPrice: Number(u.unitPrice),
                 total: Number(u.total),
               })),
+              ...sr.addOns.map((a) => {
+                const { sellingPrice, quantity = 1 } = parseNotes(a.notes);
+                const price = sellingPrice ?? Number(a.estimatedCost);
+                return {
+                  description: a.description,
+                  quantity,
+                  unitPrice: price,
+                  total: price * quantity,
+                };
+              }),
             ],
           },
         },

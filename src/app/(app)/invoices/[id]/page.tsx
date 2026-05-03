@@ -212,8 +212,9 @@ export default function InvoiceDetailPage() {
       });
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
-      setInvoice(normaliseInvoice(data));
-      toast.success("Invoice resent");
+      setInvoice(normaliseInvoice(data.invoice ?? data));
+      toast.success(data.whatsappSent ? "Invoice resent via WhatsApp" : "Invoice resent (WhatsApp unavailable)");
+      if (data.cashfreeError) toast.warning(`Payment link: ${data.cashfreeError}`);
     } catch {
       toast.error("Failed to resend invoice");
     } finally {

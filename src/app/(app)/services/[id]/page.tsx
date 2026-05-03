@@ -56,6 +56,7 @@ type SR = {
   items: SRItem[];
   inventoryUsages: SRInventoryUsage[];
   timelineEvents: TimelineEvent[];
+  invoices?: { id: string; invoiceNumber: string }[];
 };
 
 type AddOn = {
@@ -199,6 +200,7 @@ export default function ServiceRequestDetailPage() {
       fetch(`/api/service-requests/${id}/addons`).then(r => r.ok ? r.json() : []),
     ]).then(([srData, addonData]: [SR | null, AddOn[]]) => {
       setSr(srData);
+      if (srData?.invoices?.length) setRaisedInvoiceId(srData.invoices[0].id);
       setAddons(addonData ?? []);
       const prices: Record<string, string> = {};
       for (const a of addonData ?? []) {
@@ -488,6 +490,11 @@ export default function ServiceRequestDetailPage() {
                 <Receipt className="w-3.5 h-3.5" /> View Invoice
               </Link>
             )}
+            {sr.status === "CLOSED" && !raisedInvoiceId && (
+              <span className="flex items-center gap-1.5 text-xs text-slate-500 px-3 py-1.5">
+                <Receipt className="w-3.5 h-3.5" /> Invoice not found
+              </span>
+            )}
             {next && (
               <div className="flex flex-col items-end gap-1">
                 <button onClick={advanceStatus} disabled={advancing || closingBlocked}
@@ -629,6 +636,9 @@ export default function ServiceRequestDetailPage() {
                 className="mt-3 w-full flex items-center justify-center gap-1.5 text-sm font-medium bg-green-700 text-white hover:bg-green-800 py-2 rounded-md transition-colors">
                 <Receipt className="w-4 h-4" /> View Invoice
               </Link>
+            )}
+            {sr.status === "CLOSED" && !raisedInvoiceId && (
+              <p className="mt-3 text-center text-xs text-slate-400">Invoice not linked — check Invoices tab</p>
             )}
             {sr.status === "CLOSED" && (
               <div className="mt-2 flex items-center gap-1.5 text-[12px] text-green-700 font-medium">

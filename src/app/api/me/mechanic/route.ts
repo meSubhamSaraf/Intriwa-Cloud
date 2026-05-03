@@ -35,9 +35,9 @@ export const GET = withAuth(async (_req, { garageId }) => {
     },
     include: {
       serviceRequests: {
-        where: { status: { notIn: ["CLOSED"] } },
         include: { customer: true, vehicle: true },
-        orderBy: { scheduledAt: "asc" },
+        orderBy: [{ scheduledAt: "desc" }, { createdAt: "desc" }],
+        take: 50,
       },
     },
   });
