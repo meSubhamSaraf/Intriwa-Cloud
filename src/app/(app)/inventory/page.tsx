@@ -1,17 +1,41 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 import {
   Package, AlertTriangle, TrendingDown, Plus, Upload,
   Search, X, Check, FileText, Trash2,
   ShoppingCart, Eye, History, ArrowUp, ArrowDown,
-  Tag, MessageSquare, ChevronRight,
+  Tag, MessageSquare, ChevronRight, FlaskConical,
 } from "lucide-react";
-import { inventoryItems, purchaseOrders, type InventoryItem, type PurchaseOrderItem } from "@/lib/mock-data/inventory";
+import { inventoryItems as mockInventoryItems, purchaseOrders as mockPurchaseOrders, type InventoryItem, type PurchaseOrderItem } from "@/lib/mock-data/inventory";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-const TODAY = "2026-04-28";
+const TODAY = new Date().toISOString().slice(0, 10);
+
+// ── DB → display adapter ──────────────────────────────────────────
+
+type DbInventoryItem = {
+  id: string; garageId: string; name: string; category: string | null;
+  unit: string; stockQty: string | number; unitPrice: string | number;
+  lowStockAt: string | number | null; updatedAt: string;
+};
+
+function dbToInventoryItem(i: DbInventoryItem): InventoryItem {
+  return {
+    id: i.id,
+    name: i.name,
+    category: i.category ?? "Uncategorized",
+    unit: i.unit,
+    currentStock: Number(i.stockQty),
+    minStock: Number(i.lowStockAt ?? 0),
+    unitCost: Number(i.unitPrice),
+    garageId: i.garageId,
+    lastUpdated: i.updatedAt.slice(0, 10),
+  };
+}
 
 function fmtRupee(n: number) {
   return "₹" + n.toLocaleString("en-IN");
@@ -559,16 +583,29 @@ function AddPurchaseDrawer({
 
 // ── Main page ─────────────────────────────────────────────────────
 
-export default function InventoryPage() {
+function InventoryPageInner() {
+  const searchParams = useSearchParams();
+  const isMock = searchParams.get("mock") === "true";
+
   const [tab, setTab] = useState<"stock" | "purchases">("stock");
   const [query, setQuery] = useState("");
   const [catFilter, setCatFilter] = useState("All");
   const [stockFilter, setStockFilter] = useState<StockFilter>("all");
   const [showDrawer, setShowDrawer] = useState(false);
+  const [dbLoading, setDbLoading] = useState(!isMock);
 
-  // Local stock state (editable in wireframe)
-  const [stock, setStock] = useState<InventoryItem[]>(inventoryItems);
-  const [orders, setOrders] = useState(purchaseOrders);
+  // Local stock state (editable; seeded from mock or DB)
+  const [stock, setStock] = useState<InventoryItem[]>(isMock ? mockInventoryItems : []);
+  const [orders, setOrders] = useState(isMock ? mockPurchaseOrders : []);
+
+  useEffect(() => {
+    if (isMock) { setDbLoading(false); return; }
+    fetch("/api/inventory")
+      .then((r) => r.ok ? r.json() : Promise.reject(r))
+      .then((data: DbInventoryItem[]) => setStock(data.map(dbToInventoryItem)))
+      .catch(() => toast.error("Failed to load inventory from DB"))
+      .finally(() => setDbLoading(false));
+  }, [isMock]);
   const [openItem, setOpenItem] = useState<InventoryItem | null>(null);
   const [allAudits, setAllAudits] = useState<AuditEntry[]>(SEED_AUDITS);
 
@@ -649,6 +686,18 @@ export default function InventoryPage() {
 
   return (
     <div className="p-4 max-w-5xl">
+      {/* Mock mode banner */}
+      <div className={`mb-3 flex items-center gap-2 text-[11px] font-medium px-3 py-2 rounded-lg border ${isMock ? "bg-amber-50 border-amber-200 text-amber-700" : "bg-green-50 border-green-200 text-green-700"}`}>
+        <FlaskConical className="w-3.5 h-3.5 shrink-0" />
+        {isMock ? "Showing mock / sample data." : dbLoading ? "Loading live database data…" : "Showing live database data."}
+        <Link
+          href={isMock ? "/inventory" : "/inventory?mock=true"}
+          className="ml-auto underline underline-offset-2 hover:opacity-80"
+        >
+          Switch to {isMock ? "live data" : "mock data"}
+        </Link>
+      </div>
+
       {openItem && (
         <ItemDetailDrawer
           item={openItem}
@@ -860,5 +909,13 @@ export default function InventoryPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function InventoryPage() {
+  return (
+    <Suspense>
+      <InventoryPageInner />
+    </Suspense>
   );
 }

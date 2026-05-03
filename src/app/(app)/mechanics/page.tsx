@@ -1,15 +1,45 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useRouter } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { Plus, Search, Phone, ArrowRight, Star, Briefcase, UserCog, X } from "lucide-react";
+import { Plus, Search, Phone, ArrowRight, Star, Briefcase, UserCog, X, FlaskConical } from "lucide-react";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { mechanics, Mechanic, MechanicStatus } from "@/lib/mock-data/mechanics";
+import { mechanics as mockMechanics, Mechanic, MechanicStatus } from "@/lib/mock-data/mechanics";
 import { serviceRequests } from "@/lib/mock-data/serviceRequests";
 import { customers } from "@/lib/mock-data/customers";
 import { vehicles } from "@/lib/mock-data/vehicles";
 import { toast } from "sonner";
+
+// ── DB → display adapter ──────────────────────────────────────────
+
+type DbMechanic = {
+  id: string;
+  name: string;
+  phone: string | null;
+  employmentType: string;
+  rating: number | null;
+  isAvailable: boolean;
+  isActive: boolean;
+};
+
+function dbToMechanic(m: DbMechanic): Mechanic {
+  return {
+    id: m.id,
+    userId: m.id,
+    name: m.name,
+    phone: m.phone ?? "—",
+    skills: [],
+    workingHours: { start: "—", end: "—", days: [] },
+    employmentType: m.employmentType === "FULL_TIME" || m.employmentType === "PART_TIME" ? "employee" : "freelance",
+    currentStatus: m.isAvailable ? "free" : "off_duty",
+    todaysJobCount: 0,
+    todaysCompletedCount: 0,
+    monthlyRevenue: 0,
+    rating: m.rating ?? 0,
+  };
+}
 
 // ── Helpers ───────────────────────────────────────────────────────
 
@@ -183,13 +213,14 @@ function Stat({ label, value, sub, icon }: { label: string; value: string; sub: 
 // ── Add Mechanic Modal ────────────────────────────────────────────
 
 const BLANK = {
-  name: "", phone: "", employmentType: "FULL_TIME",
+  name: "", phone: "", email: "", employmentType: "FULL_TIME",
   payoutConfigType: "PERCENT_OF_ITEM", salaryAmount: "", payoutRate: "",
 };
 
 function AddMechanicModal({ onClose, onCreated }: { onClose: () => void; onCreated: (m: { id: string; name: string }) => void }) {
   const [form, setForm] = useState(BLANK);
   const [saving, setSaving] = useState(false);
+  const [credentials, setCredentials] = useState<{ email: string; password: string } | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -200,8 +231,9 @@ function AddMechanicModal({ onClose, onCreated }: { onClose: () => void; onCreat
       employmentType: form.employmentType,
       payoutConfigType: form.payoutConfigType,
     };
-    if (form.salaryAmount) body.salaryAmount = Number(form.salaryAmount);
-    if (form.payoutRate)   body.payoutRate   = Number(form.payoutRate) / 100; // store as decimal e.g. 0.40
+    if (form.email.trim())  body.email        = form.email.trim().toLowerCase();
+    if (form.salaryAmount)  body.salaryAmount  = Number(form.salaryAmount);
+    if (form.payoutRate)    body.payoutRate    = Number(form.payoutRate) / 100;
 
     const res = await fetch("/api/mechanics", {
       method: "POST",
@@ -211,9 +243,14 @@ function AddMechanicModal({ onClose, onCreated }: { onClose: () => void; onCreat
     setSaving(false);
     if (res.ok) {
       const created = await res.json();
-      toast.success(`${created.name} added`);
       onCreated(created);
-      onClose();
+      if (created.defaultPassword && created.email) {
+        // Stay open to show the credentials — admin closes after copying
+        setCredentials({ email: created.email, password: created.defaultPassword });
+      } else {
+        toast.success(`${created.name} added`);
+        onClose();
+      }
     } else {
       const err = await res.json().catch(() => ({}));
       toast.error(err.error ?? "Failed to add mechanic");
@@ -227,6 +264,24 @@ function AddMechanicModal({ onClose, onCreated }: { onClose: () => void; onCreat
           <h3 className="font-semibold text-slate-800">Add Mechanic</h3>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X className="w-4 h-4" /></button>
         </div>
+
+        {/* Credentials banner — shown after successful creation */}
+        {credentials && (
+          <div className="mb-4 rounded-xl bg-green-50 border border-green-200 p-4 space-y-3">
+            <p className="text-xs font-semibold text-green-800">Mechanic added — share these login credentials</p>
+            <div className="space-y-1.5">
+              <CredRow label="Email" value={credentials.email} />
+              <CredRow label="Password" value={credentials.password} />
+            </div>
+            <p className="text-[10px] text-green-700">They can reset the password anytime from the login page.</p>
+            <button onClick={onClose}
+              className="w-full h-9 bg-green-700 text-white text-sm font-medium rounded-lg hover:bg-green-600">
+              Done
+            </button>
+          </div>
+        )}
+
+        {!credentials && (
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-xs font-medium text-slate-600 mb-1.5">Full name</label>
@@ -240,6 +295,16 @@ function AddMechanicModal({ onClose, onCreated }: { onClose: () => void; onCreat
             <input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
               placeholder="e.g. 9876543210" required
               className="w-full h-10 px-3 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-brand-navy-400" />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1.5">
+              Email <span className="text-slate-400 font-normal">(optional — enables portal login)</span>
+            </label>
+            <input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
+              placeholder="e.g. ravi@intriwa.in"
+              className="w-full h-10 px-3 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-brand-navy-400" />
+            <p className="text-[10px] text-slate-400 mt-1">A login account with default password will be created automatically.</p>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -313,19 +378,55 @@ function AddMechanicModal({ onClose, onCreated }: { onClose: () => void; onCreat
             </button>
           </div>
         </form>
+        )}
       </div>
+    </div>
+  );
+}
+
+function CredRow({ label, value }: { label: string; value: string }) {
+  const [copied, setCopied] = useState(false);
+  function copy() {
+    navigator.clipboard.writeText(value).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+  return (
+    <div className="flex items-center justify-between gap-2 bg-white rounded-lg px-3 py-2 border border-green-200">
+      <span className="text-[10px] text-slate-500 w-14 shrink-0">{label}</span>
+      <span className="text-xs font-mono text-slate-800 flex-1 truncate">{value}</span>
+      <button onClick={copy} className="text-[10px] text-green-700 hover:underline shrink-0">
+        {copied ? "Copied!" : "Copy"}
+      </button>
     </div>
   );
 }
 
 // ── Page ──────────────────────────────────────────────────────────
 
-export default function MechanicsPage() {
+function MechanicsPageInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const isMock = searchParams.get("mock") === "true";
+
+  const [dbMechanics, setDbMechanics] = useState<Mechanic[]>([]);
+  const [loading, setLoading] = useState(!isMock);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<MechanicStatus | "all">("all");
   const [skillFilters, setSkillFilters] = useState<Skill[]>([]);
   const [showAdd, setShowAdd] = useState(false);
+
+  useEffect(() => {
+    if (isMock) { setLoading(false); return; }
+    fetch("/api/mechanics")
+      .then((r) => r.ok ? r.json() : Promise.reject(r))
+      .then((data: DbMechanic[]) => setDbMechanics(data.map(dbToMechanic)))
+      .catch(() => toast.error("Failed to load mechanics from DB"))
+      .finally(() => setLoading(false));
+  }, [isMock]);
+
+  const mechanics = isMock ? mockMechanics : dbMechanics;
 
   function toggleSkill(skill: Skill) {
     setSkillFilters((prev) =>
@@ -350,12 +451,24 @@ export default function MechanicsPage() {
 
   return (
     <div className="p-4">
+      {/* Mock mode banner */}
+      <div className={`mb-3 flex items-center gap-2 text-[11px] font-medium px-3 py-2 rounded-lg border ${isMock ? "bg-amber-50 border-amber-200 text-amber-700" : "bg-green-50 border-green-200 text-green-700"}`}>
+        <FlaskConical className="w-3.5 h-3.5 shrink-0" />
+        {isMock ? "Showing mock / sample data." : "Showing live database data."}
+        <Link
+          href={isMock ? "/mechanics" : "/mechanics?mock=true"}
+          className="ml-auto underline underline-offset-2 hover:opacity-80"
+        >
+          Switch to {isMock ? "live data" : "mock data"}
+        </Link>
+      </div>
+
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div>
           <h1 className="text-base font-semibold text-slate-800">Mechanics</h1>
           <p className="text-[11px] text-slate-500">
-            {freeCnt} free · {busyCnt} on job · {mechanics.length} total
+            {loading ? "Loading…" : `${freeCnt} free · ${busyCnt} on job · ${mechanics.length} total`}
           </p>
         </div>
         <button
@@ -422,7 +535,9 @@ export default function MechanicsPage() {
       </div>
 
       {/* Cards */}
-      {filtered.length > 0 ? (
+      {loading ? (
+        <div className="flex items-center justify-center py-12 text-slate-400 text-sm">Loading mechanics…</div>
+      ) : filtered.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {filtered.map((m) => (
             <MechanicCard key={m.id} mech={m} />
@@ -431,8 +546,8 @@ export default function MechanicsPage() {
       ) : (
         <EmptyState
           icon={UserCog}
-          title="No mechanics match your filters"
-          description="Try adjusting your search, status, or skill filters."
+          title={mechanics.length === 0 ? "No mechanics in database yet" : "No mechanics match your filters"}
+          description={mechanics.length === 0 ? "Add your first mechanic using the button above." : "Try adjusting your search, status, or skill filters."}
         />
       )}
 
@@ -443,5 +558,13 @@ export default function MechanicsPage() {
         />
       )}
     </div>
+  );
+}
+
+export default function MechanicsPage() {
+  return (
+    <Suspense>
+      <MechanicsPageInner />
+    </Suspense>
   );
 }

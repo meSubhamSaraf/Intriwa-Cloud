@@ -7,7 +7,7 @@ import {
   CheckCircle, MapPin, ChevronLeft, ChevronRight,
   Edit2, Save, X, FileText, DollarSign, History,
   AlertCircle, Upload, LayoutDashboard,
-  Wallet, User, BadgeCheck,
+  Wallet, User, BadgeCheck, Mail, Send,
 } from "lucide-react";
 import { mechanics, type MechanicStatus } from "@/lib/mock-data/mechanics";
 import { serviceRequests, ServiceRequest } from "@/lib/mock-data/serviceRequests";
@@ -30,6 +30,7 @@ type APIMechanic = {
   id: string;
   name: string;
   phone: string;
+  email: string | null;
   employmentType: string;
   salaryAmount: number | null;
   salaryType: string | null;
@@ -658,6 +659,8 @@ export default function MechanicDetailPage() {
   const [tab, setTab] = useState<Tab>("overview");
   const [weekOffset, setWeekOffset] = useState(0);
   const [apiMechanic, setApiMechanic] = useState<APIMechanic | null>(null);
+  const [inviting, setInviting] = useState(false);
+  const [invited, setInvited] = useState(false);
 
   // Fall back to mock data for the schedule view
   const mech = mechanics.find((m) => m.id === id);
@@ -709,6 +712,24 @@ export default function MechanicDetailPage() {
   });
   const maxEarned = Math.max(...weekEarnings.map((e) => e.earned), 1);
 
+  async function sendInvite() {
+    if (!apiMechanic || inviting) return;
+    setInviting(true);
+    try {
+      const res = await fetch(`/api/mechanics/${id}/invite`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error ?? "Failed to send invite"); return; }
+      if (data.alreadyExists) {
+        toast.info("This mechanic already has a Supabase account. They can log in directly.");
+      } else {
+        toast.success(`Invite sent to ${apiMechanic.email}`);
+      }
+      setInvited(true);
+    } finally {
+      setInviting(false);
+    }
+  }
+
   function toggleSkill(skill: string) {
     setLocalSkills((prev) => prev.includes(skill) ? prev.filter((s) => s !== skill) : [...prev, skill]);
   }
@@ -752,10 +773,42 @@ export default function MechanicDetailPage() {
               )}
             </div>
 
-            <div className="flex items-center gap-1 mb-3 text-[12px] text-slate-500">
+            <div className="flex items-center gap-1 mb-1.5 text-[12px] text-slate-500">
               <Phone className="w-3 h-3" />
               <span className="tabular-nums">{displayPhone}</span>
             </div>
+
+            {/* Email + portal invite */}
+            {apiMechanic && (
+              <div className="flex items-center gap-2 mb-3 flex-wrap">
+                <div className="flex items-center gap-1 text-[12px] text-slate-500">
+                  <Mail className="w-3 h-3" />
+                  <span>{apiMechanic.email ?? <span className="italic text-slate-400">No email on file</span>}</span>
+                </div>
+                {apiMechanic.email && (
+                  <button
+                    onClick={sendInvite}
+                    disabled={inviting || invited}
+                    className={`flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-lg border transition-colors disabled:opacity-60 ${
+                      invited
+                        ? "bg-green-50 border-green-200 text-green-700"
+                        : "bg-brand-navy-50 border-brand-navy-200 text-brand-navy-700 hover:bg-brand-navy-100"
+                    }`}
+                  >
+                    {invited ? (
+                      <><CheckCircle className="w-3 h-3" /> Invite sent</>
+                    ) : (
+                      <><Send className="w-3 h-3" /> {inviting ? "Sending…" : "Send Portal Invite"}</>
+                    )}
+                  </button>
+                )}
+                {!apiMechanic.email && (
+                  <span className="text-[11px] text-amber-600 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded">
+                    Add email to enable portal login
+                  </span>
+                )}
+              </div>
+            )}
 
             {/* Payout configuration row */}
             {apiMechanic && (apiMechanic.payoutConfigType || apiMechanic.salaryAmount != null) && (

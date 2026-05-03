@@ -4,6 +4,13 @@
 // Every route handler calls requireAuth() first.
 // It verifies the Supabase session and returns the Profile row so routes
 // know the caller's role and garageId without repeating that logic.
+//
+// Profile auto-creation:
+//   For password-based logins the auth callback never fires, so this helper
+//   upserts the Profile on every first API call.  Role and garageId are read
+//   from Supabase user_metadata.  For MECHANIC users without a garageId in
+//   their metadata we fall back to looking it up from the Mechanic record that
+//   matches their email — so a test mechanic only needs role in metadata.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { NextResponse } from "next/server";
@@ -25,14 +32,51 @@ export async function requireAuth(): Promise<AuthContext> {
     throw NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const profile = await prisma.profile.findUnique({ where: { id: user.id } });
+  const meta     = user.user_metadata ?? {};
+  let   role     = (meta.role as string | undefined) ?? "OPS_MANAGER";
+  let   garageId = (meta.garageId as string | undefined) ?? null;
 
-  if (!profile) {
-    throw NextResponse.json({ error: "Profile not found — contact your admin" }, { status: 403 });
+  // Phone-based logins (mechanics): look up by phone number.
+  // Supabase stores phone as +91XXXXXXXXXX; our DB stores 10-digit numbers.
+  if (user.phone && !user.email) {
+    const digits = user.phone.replace(/\D/g, "").slice(-10); // last 10 digits
+    const linked = await prisma.mechanic.findFirst({
+      where: { phone: { endsWith: digits }, isActive: true },
+      select: { garageId: true },
+    });
+    if (linked) { role = "MECHANIC"; garageId = linked.garageId; }
   }
 
+  // Email-based mechanic logins: look up by email if garageId still missing
+  if (role === "MECHANIC" && !garageId && user.email) {
+    const linked = await prisma.mechanic.findFirst({
+      where: { email: user.email, isActive: true },
+      select: { garageId: true },
+    });
+    garageId = linked?.garageId ?? null;
+  }
+
+  // Upsert the Profile — creates it on first login, no-ops on subsequent ones
+  const profile = await prisma.profile.upsert({
+    where:  { id: user.id },
+    create: {
+      id:       user.id,
+      email:    user.email!,
+      name:     (meta.name as string | undefined) ?? user.email!.split("@")[0],
+      role:     role as "SUPER_ADMIN" | "OPS_MANAGER" | "MECHANIC",
+      garageId,
+    },
+    update: {
+      // Backfill garageId if it was resolved above and was previously null
+      ...(garageId ? { garageId } : {}),
+    },
+  });
+
   if (!profile.garageId) {
-    throw NextResponse.json({ error: "Account has no garage — contact your admin" }, { status: 403 });
+    throw NextResponse.json(
+      { error: "Account has no garage — contact your admin" },
+      { status: 403 }
+    );
   }
 
   return { userId: user.id, profile, garageId: profile.garageId };
