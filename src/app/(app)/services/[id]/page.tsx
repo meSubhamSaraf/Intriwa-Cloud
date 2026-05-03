@@ -8,7 +8,7 @@ import {
   Phone, MessageCircle, UserCog, Home, FileText,
   Pencil, ArrowRight, Clock, ChevronRight,
   CheckCircle2, AlertTriangle, Building2, Package,
-  Plus, X, Users, Eye,
+  Plus, X, Users, Eye, Camera,
 } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -39,7 +39,7 @@ type SRInventoryUsage = {
 };
 
 type TimelineEvent = {
-  id: string; eventType: string; description: string | null;
+  id: string; type: string; body: string | null;
   actorName: string | null; metadata: unknown; createdAt: string;
 };
 
@@ -115,12 +115,17 @@ function LocationBadge({ type }: { type: "GARAGE" | "FIELD" | "SOCIETY" }) {
 // ── Timeline event ─────────────────────────────────────────────────
 
 const TL_ICON: Record<string, React.ElementType> = {
-  STATUS_CHANGED: ArrowRight, NOTE_ADDED: FileText, DIAGNOSIS_UPDATED: Wrench,
-  INVOICE_RAISED: Receipt, DEFAULT: Pencil,
+  STATUS_CHANGE:     ArrowRight,
+  NOTE:              FileText,
+  PHOTO:             Camera,
+  INVOICE_RAISED:    Receipt,
+  WHATSAPP_SENT:     MessageCircle,
+  LOCATION_RECEIVED: MapPin,
+  DEFAULT:           Pencil,
 };
 
 function TLEventRow({ event }: { event: TimelineEvent }) {
-  const Icon = TL_ICON[event.eventType] ?? TL_ICON.DEFAULT;
+  const Icon = TL_ICON[event.type] ?? TL_ICON.DEFAULT;
   return (
     <div className="flex gap-3 pb-4">
       <div className="flex flex-col items-center shrink-0">
@@ -130,7 +135,7 @@ function TLEventRow({ event }: { event: TimelineEvent }) {
         <div className="w-px flex-1 bg-slate-200 mt-1" />
       </div>
       <div className="pb-2 min-w-0">
-        <p className="text-[12px] font-medium text-slate-700">{event.description ?? event.eventType.replace(/_/g, " ")}</p>
+        <p className="text-[12px] font-medium text-slate-700">{event.body ?? event.type.replace(/_/g, " ")}</p>
         <p className="text-[10px] text-slate-400 mt-0.5">
           {event.actorName && <>{event.actorName} · </>}{fmtDateTime(event.createdAt)}
         </p>
