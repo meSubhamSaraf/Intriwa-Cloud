@@ -245,8 +245,12 @@ function AddMechanicModal({ onClose, onCreated }: { onClose: () => void; onCreat
       const created = await res.json();
       onCreated(created);
       if (created.defaultPassword && created.email) {
-        // Stay open to show the credentials — admin closes after copying
         setCredentials({ email: created.email, password: created.defaultPassword });
+      } else if (created.authError && created.email) {
+        // Mechanic was created in DB but Supabase account creation failed.
+        // Show a warning — admin can use "Send login email" from profile page.
+        toast.warning(`${created.name} added, but login account could not be created: ${created.authError}. Use "Send login email" on their profile page.`, { duration: 8000 });
+        onClose();
       } else {
         toast.success(`${created.name} added`);
         onClose();

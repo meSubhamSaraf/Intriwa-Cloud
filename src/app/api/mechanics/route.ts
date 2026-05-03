@@ -34,7 +34,15 @@ export const POST = withAuth(async (req, { garageId }) => {
     const firstName = mechanic.name.trim().split(/\s+/)[0].toLowerCase();
     defaultPassword = `${firstName}@123`;
 
-    const supabase = createAdminClient();
+    let supabase;
+    try {
+      supabase = createAdminClient();
+    } catch (e) {
+      authError = e instanceof Error ? e.message : "Admin client unavailable";
+      defaultPassword = null;
+    }
+
+    if (supabase && defaultPassword) {
     const { error } = await supabase.auth.admin.createUser({
       email: mechanic.email,
       password: defaultPassword,
@@ -54,6 +62,7 @@ export const POST = withAuth(async (req, { garageId }) => {
         defaultPassword = null;
       }
     }
+    } // end if (supabase)
   }
 
   return NextResponse.json(
