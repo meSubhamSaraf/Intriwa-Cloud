@@ -659,8 +659,11 @@ export default function MechanicDetailPage() {
   const [tab, setTab] = useState<Tab>("overview");
   const [weekOffset, setWeekOffset] = useState(0);
   const [apiMechanic, setApiMechanic] = useState<APIMechanic | null>(null);
-  const [inviting, setInviting] = useState(false);
-  const [invited, setInvited] = useState(false);
+  const [editingEmail, setEditingEmail] = useState(false);
+  const [emailDraft, setEmailDraft] = useState("");
+  const [savingEmail, setSavingEmail] = useState(false);
+  const [sendingReset, setSendingReset] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
 
   // Fall back to mock data for the schedule view
   const mech = mechanics.find((m) => m.id === id);
@@ -712,21 +715,47 @@ export default function MechanicDetailPage() {
   });
   const maxEarned = Math.max(...weekEarnings.map((e) => e.earned), 1);
 
-  async function sendInvite() {
-    if (!apiMechanic || inviting) return;
-    setInviting(true);
+  function startEditEmail() {
+    setEmailDraft(apiMechanic?.email ?? "");
+    setEditingEmail(true);
+    setResetSent(false);
+  }
+
+  async function saveEmail() {
+    if (!apiMechanic || savingEmail) return;
+    setSavingEmail(true);
     try {
-      const res = await fetch(`/api/mechanics/${id}/invite`, { method: "POST" });
-      const data = await res.json();
-      if (!res.ok) { toast.error(data.error ?? "Failed to send invite"); return; }
-      if (data.alreadyExists) {
-        toast.info("This mechanic already has a Supabase account. They can log in directly.");
-      } else {
-        toast.success(`Invite sent to ${apiMechanic.email}`);
+      const res = await fetch(`/api/mechanics/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: emailDraft.trim().toLowerCase() || null }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.error ?? "Failed to update email");
+        return;
       }
-      setInvited(true);
+      const updated = await res.json();
+      setApiMechanic(updated);
+      setEditingEmail(false);
+      setResetSent(false);
+      toast.success("Email updated");
     } finally {
-      setInviting(false);
+      setSavingEmail(false);
+    }
+  }
+
+  async function sendLoginEmail() {
+    if (!apiMechanic || sendingReset) return;
+    setSendingReset(true);
+    try {
+      const res = await fetch(`/api/mechanics/${id}/reset-password`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error ?? "Failed to send email"); return; }
+      setResetSent(true);
+      toast.success(`Login email sent to ${apiMechanic.email}`);
+    } finally {
+      setSendingReset(false);
     }
   }
 
@@ -778,34 +807,64 @@ export default function MechanicDetailPage() {
               <span className="tabular-nums">{displayPhone}</span>
             </div>
 
-            {/* Email + portal invite */}
+            {/* Email — inline editable + send login email */}
             {apiMechanic && (
-              <div className="flex items-center gap-2 mb-3 flex-wrap">
-                <div className="flex items-center gap-1 text-[12px] text-slate-500">
-                  <Mail className="w-3 h-3" />
-                  <span>{apiMechanic.email ?? <span className="italic text-slate-400">No email on file</span>}</span>
-                </div>
-                {apiMechanic.email && (
-                  <button
-                    onClick={sendInvite}
-                    disabled={inviting || invited}
-                    className={`flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-lg border transition-colors disabled:opacity-60 ${
-                      invited
-                        ? "bg-green-50 border-green-200 text-green-700"
-                        : "bg-brand-navy-50 border-brand-navy-200 text-brand-navy-700 hover:bg-brand-navy-100"
-                    }`}
-                  >
-                    {invited ? (
-                      <><CheckCircle className="w-3 h-3" /> Invite sent</>
-                    ) : (
-                      <><Send className="w-3 h-3" /> {inviting ? "Sending…" : "Send Portal Invite"}</>
+              <div className="mb-3">
+                {editingEmail ? (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Mail className="w-3 h-3 text-slate-400 shrink-0" />
+                    <input
+                      type="email"
+                      value={emailDraft}
+                      onChange={e => setEmailDraft(e.target.value)}
+                      placeholder="mechanic@example.com"
+                      autoFocus
+                      className="h-8 px-2 text-xs border border-brand-navy-300 rounded-lg focus:outline-none focus:border-brand-navy-500 w-56"
+                    />
+                    <button
+                      onClick={saveEmail}
+                      disabled={savingEmail}
+                      className="flex items-center gap-1 text-[11px] font-medium text-green-700 bg-green-50 border border-green-200 px-2.5 py-1 rounded-lg hover:bg-green-100 disabled:opacity-60">
+                      <Save className="w-3 h-3" /> {savingEmail ? "Saving…" : "Save"}
+                    </button>
+                    <button onClick={() => setEditingEmail(false)} className="text-slate-400 hover:text-slate-600">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <div className="flex items-center gap-1 text-[12px] text-slate-500">
+                      <Mail className="w-3 h-3" />
+                      <span>{apiMechanic.email ?? <span className="italic text-slate-400">No email on file</span>}</span>
+                    </div>
+                    <button
+                      onClick={startEditEmail}
+                      className="flex items-center gap-1 text-[11px] text-brand-navy-600 hover:underline">
+                      <Edit2 className="w-2.5 h-2.5" /> Edit
+                    </button>
+                    {apiMechanic.email && (
+                      <button
+                        onClick={sendLoginEmail}
+                        disabled={sendingReset}
+                        className={`flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-lg border transition-colors disabled:opacity-60 ${
+                          resetSent
+                            ? "bg-green-50 border-green-200 text-green-700"
+                            : "bg-brand-navy-50 border-brand-navy-200 text-brand-navy-700 hover:bg-brand-navy-100"
+                        }`}
+                      >
+                        {resetSent ? (
+                          <><CheckCircle className="w-3 h-3" /> Email sent</>
+                        ) : (
+                          <><Send className="w-3 h-3" /> {sendingReset ? "Sending…" : "Send login email"}</>
+                        )}
+                      </button>
                     )}
-                  </button>
-                )}
-                {!apiMechanic.email && (
-                  <span className="text-[11px] text-amber-600 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded">
-                    Add email to enable portal login
-                  </span>
+                    {!apiMechanic.email && (
+                      <span className="text-[11px] text-amber-600 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded">
+                        Add email to enable portal login
+                      </span>
+                    )}
+                  </div>
                 )}
               </div>
             )}
