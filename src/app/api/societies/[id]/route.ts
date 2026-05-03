@@ -11,7 +11,7 @@ export const GET = withAuthParams<{ id: string }>(async (_req, { garageId }, { i
     include: {
       customers: {
         include: {
-          _count: { select: { vehicles: true } },
+          _count: { select: { vehicles: true, serviceRequests: true } },
         },
       },
       serviceRequests: {

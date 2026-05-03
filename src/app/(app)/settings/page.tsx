@@ -6,9 +6,7 @@ import {
   Check, Edit2, Plus, CheckCircle, Wifi, Clock, MapPin, X, Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
-import { users } from "@/lib/mock-data/users";
-import { mechanics } from "@/lib/mock-data/mechanics";
-import type { ServiceCategory } from "@/lib/mock-data/serviceCatalog";
+type ServiceCategory = "4W" | "2W" | "AC" | "Accessory" | "Body" | "Wash";
 
 // ── Types & constants ─────────────────────────────────────────────
 
@@ -90,16 +88,41 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 
 // ── Tab: Profile ──────────────────────────────────────────────────
 
-function ProfileTab() {
-  const me = users[0]; // Vikram (admin)
-  const [editing, setEditing] = useState(false);
-  const [name, setName] = useState(me.name);
-  const [phone, setPhone] = useState(me.phone ?? "");
+type ProfileData = { id: string; name: string; email: string; phone: string | null; role: string };
 
-  function save() {
-    setEditing(false);
-    toast.success("Profile updated (mock)");
+function ProfileTab() {
+  const [me, setMe] = useState<ProfileData | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/profile").then((r) => r.json()).then((data: ProfileData) => {
+      setMe(data);
+      setName(data.name);
+      setPhone(data.phone ?? "");
+    });
+  }, []);
+
+  async function save() {
+    setSaving(true);
+    try {
+      const res = await fetch("/api/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, phone }),
+      });
+      if (!res.ok) throw new Error();
+      const updated: ProfileData = await res.json();
+      setMe(updated);
+      setEditing(false);
+      toast.success("Profile updated");
+    } catch { toast.error("Failed to save profile"); }
+    finally { setSaving(false); }
   }
+
+  if (!me) return <div className="py-8 text-center text-slate-400 text-sm">Loading…</div>;
 
   return (
     <div className="max-w-lg space-y-6">
@@ -111,8 +134,8 @@ function ProfileTab() {
           </div>
           <div>
             <p className="text-base font-semibold text-slate-800">{name}</p>
-            <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded border ${ROLE_COLORS[me.role]}`}>
-              {me.role.charAt(0).toUpperCase() + me.role.slice(1)}
+            <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded border ${ROLE_COLORS[me.role.toLowerCase()] ?? "text-slate-600 bg-slate-100 border-slate-200"}`}>
+              {me.role.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
             </span>
           </div>
         </div>
@@ -126,15 +149,15 @@ function ProfileTab() {
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">Email</label>
               <input value={me.email} disabled className="w-full h-9 px-3 text-sm border border-slate-200 rounded-md bg-slate-50 text-slate-400" />
-              <p className="text-[10px] text-slate-400 mt-1">Email cannot be changed. Contact Vikram.</p>
+              <p className="text-[10px] text-slate-400 mt-1">Email cannot be changed.</p>
             </div>
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">Phone</label>
               <input value={phone} onChange={(e) => setPhone(e.target.value)} className="w-full h-9 px-3 text-sm border border-slate-200 rounded-md focus:outline-none focus:border-brand-navy-400" />
             </div>
             <div className="flex gap-2 pt-1">
-              <button onClick={save} className="flex items-center gap-1.5 px-4 py-2 bg-brand-navy-800 text-white text-sm font-medium rounded-md hover:bg-brand-navy-700">
-                <Check className="w-3.5 h-3.5" /> Save changes
+              <button onClick={save} disabled={saving} className="flex items-center gap-1.5 px-4 py-2 bg-brand-navy-800 text-white text-sm font-medium rounded-md hover:bg-brand-navy-700 disabled:opacity-60">
+                {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Save changes
               </button>
               <button onClick={() => setEditing(false)} className="px-4 py-2 text-sm text-slate-600 border border-slate-200 rounded-md hover:bg-slate-50">
                 Cancel
@@ -143,7 +166,7 @@ function ProfileTab() {
           </div>
         ) : (
           <div className="space-y-2.5">
-            {[["Email", me.email], ["Phone", phone || "—"], ["Role", me.role]].map(([l, v]) => (
+            {[["Email", me.email], ["Phone", phone || "—"], ["Role", me.role.replace(/_/g, " ")]].map(([l, v]) => (
               <div key={l} className="flex items-center justify-between py-1.5 border-b border-slate-100 last:border-0">
                 <span className="text-xs font-medium text-slate-500">{l}</span>
                 <span className="text-sm text-slate-800">{v}</span>
@@ -174,11 +197,21 @@ function ProfileTab() {
 // ── Tab: Team ─────────────────────────────────────────────────────
 
 function TeamTab() {
+  const [members, setMembers] = useState<ProfileData[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch("/api/profiles")
+      .then((r) => r.json())
+      .then((data: ProfileData[]) => setMembers(data))
+      .finally(() => setLoading(false));
+  }, []);
+
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
-        <SectionLabel>Team members ({users.length})</SectionLabel>
-        <button onClick={() => toast.info("Invite flow (mock)")} className="flex items-center gap-1.5 text-sm font-medium bg-brand-navy-800 text-white hover:bg-brand-navy-700 px-3 py-1.5 rounded-md transition-colors">
+        <SectionLabel>Team members ({members.length})</SectionLabel>
+        <button onClick={() => toast.info("Invite flow coming soon")} className="flex items-center gap-1.5 text-sm font-medium bg-brand-navy-800 text-white hover:bg-brand-navy-700 px-3 py-1.5 rounded-md transition-colors">
           <Plus className="w-3.5 h-3.5" /> Invite member
         </button>
       </div>
@@ -186,13 +219,17 @@ function TeamTab() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50">
-              {["Member", "Email", "Role", "Phone", ""].map((h) => (
+              {["Member", "Email", "Role", "Phone"].map((h) => (
                 <th key={h} className="px-3 py-2.5 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {users.map((u) => (
+            {loading ? (
+              <tr><td colSpan={4} className="px-3 py-6 text-center text-slate-400 text-sm"><Loader2 className="w-4 h-4 animate-spin inline mr-2" />Loading…</td></tr>
+            ) : members.length === 0 ? (
+              <tr><td colSpan={4} className="px-3 py-6 text-center text-slate-400 text-sm">No team members yet.</td></tr>
+            ) : members.map((u) => (
               <tr key={u.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
                 <td className="px-3 py-2.5">
                   <div className="flex items-center gap-2">
@@ -204,14 +241,11 @@ function TeamTab() {
                 </td>
                 <td className="px-3 py-2.5 text-[12px] text-slate-500">{u.email}</td>
                 <td className="px-3 py-2.5">
-                  <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded border ${ROLE_COLORS[u.role]}`}>
-                    {u.role.charAt(0).toUpperCase() + u.role.slice(1)}
+                  <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded border ${ROLE_COLORS[u.role.toLowerCase()] ?? "text-slate-600 bg-slate-100 border-slate-200"}`}>
+                    {u.role.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
                   </span>
                 </td>
                 <td className="px-3 py-2.5 text-[12px] text-slate-500 tabular-nums">{u.phone ?? "—"}</td>
-                <td className="px-3 py-2.5">
-                  <button onClick={() => toast.info("Edit member (mock)")} className="text-[11px] text-slate-400 hover:text-brand-navy-600 hover:underline">Edit</button>
-                </td>
               </tr>
             ))}
           </tbody>
@@ -464,54 +498,79 @@ function CatalogTab() {
 
 // ── Tab: Mechanic Skills ──────────────────────────────────────────
 
-const ALL_SKILLS = ["2W", "4W", "AC", "Accessory", "Body", "Engine", "Electrical"] as const;
+type DbMechForSkills = {
+  id: string; name: string; employmentType: string;
+  skills: { skillId: string; mechanic: { label: string } }[];
+};
 
 function SkillsTab() {
+  const [mechanics, setMechanics] = useState<DbMechForSkills[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch("/api/mechanics")
+      .then((r) => r.json())
+      .then((data: DbMechForSkills[]) => setMechanics(data))
+      .finally(() => setLoading(false));
+  }, []);
+
+  // Collect all unique skill labels across mechanics
+  const allSkills = Array.from(
+    new Set(mechanics.flatMap((m) => m.skills.map((s) => s.mechanic.label)))
+  ).sort();
+
   return (
     <div>
-      <SectionLabel>Skills configuration per mechanic</SectionLabel>
+      <SectionLabel>Skills per mechanic</SectionLabel>
       <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50">
               <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Mechanic</th>
-              {ALL_SKILLS.map((s) => (
+              {allSkills.map((s) => (
                 <th key={s} className="px-2 py-2.5 text-center text-[10px] font-semibold text-slate-500 uppercase tracking-wide">{s}</th>
               ))}
               <th className="px-3 py-2.5" />
             </tr>
           </thead>
           <tbody>
-            {mechanics.map((m) => (
-              <tr key={m.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
-                <td className="px-3 py-3">
-                  <div className="flex items-center gap-2">
-                    <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${avatarBg(m.name)}`}>
-                      {initials(m.name)}
+            {loading ? (
+              <tr><td colSpan={allSkills.length + 2} className="px-3 py-6 text-center text-slate-400 text-sm"><Loader2 className="w-4 h-4 animate-spin inline mr-2" />Loading…</td></tr>
+            ) : mechanics.length === 0 ? (
+              <tr><td colSpan={2} className="px-3 py-6 text-center text-slate-400 text-sm">No mechanics yet.</td></tr>
+            ) : mechanics.map((m) => {
+              const mechSkills = new Set(m.skills.map((s) => s.mechanic.label));
+              return (
+                <tr key={m.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+                  <td className="px-3 py-3">
+                    <div className="flex items-center gap-2">
+                      <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${avatarBg(m.name)}`}>
+                        {initials(m.name)}
+                      </div>
+                      <div>
+                        <p className="font-medium text-slate-800 whitespace-nowrap">{m.name}</p>
+                        <p className="text-[10px] text-slate-400">{m.employmentType}</p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="font-medium text-slate-800 whitespace-nowrap">{m.name}</p>
-                      <p className="text-[10px] text-slate-400">{m.employmentType}</p>
-                    </div>
-                  </div>
-                </td>
-                {ALL_SKILLS.map((skill) => {
-                  const has = m.skills.includes(skill as typeof m.skills[number]);
-                  return (
+                  </td>
+                  {allSkills.map((skill) => (
                     <td key={skill} className="px-2 py-3 text-center">
-                      <div className={`w-5 h-5 rounded mx-auto flex items-center justify-center ${has ? "bg-green-500" : "bg-slate-100 border border-slate-200"}`}>
-                        {has && <Check className="w-3 h-3 text-white" />}
+                      <div className={`w-5 h-5 rounded mx-auto flex items-center justify-center ${mechSkills.has(skill) ? "bg-green-500" : "bg-slate-100 border border-slate-200"}`}>
+                        {mechSkills.has(skill) && <Check className="w-3 h-3 text-white" />}
                       </div>
                     </td>
-                  );
-                })}
-                <td className="px-3 py-3">
-                  <button onClick={() => toast.info("Edit skills (mock)")} className="text-[11px] text-slate-400 hover:text-brand-navy-600 hover:underline whitespace-nowrap">
-                    Edit
-                  </button>
-                </td>
-              </tr>
-            ))}
+                  ))}
+                  <td className="px-3 py-3">
+                    <button
+                      onClick={() => window.location.href = `/mechanics/${m.id}`}
+                      className="text-[11px] text-slate-400 hover:text-brand-navy-600 hover:underline whitespace-nowrap"
+                    >
+                      Edit
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

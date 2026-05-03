@@ -7,8 +7,7 @@ import {
   HardHat, FileText, Search, Plus, Clock, AlertTriangle, X, Package, MapPin,
 } from "lucide-react";
 import { toast } from "sonner";
-import { mechanics } from "@/lib/mock-data/mechanics";
-import { serviceCatalog, ServiceCatalogItem, ServiceCategory } from "@/lib/mock-data/serviceCatalog";
+type ServiceCategory = "4W" | "2W" | "AC" | "Accessory" | "Body" | "Wash";
 
 // ── Real data types ───────────────────────────────────────────────
 
@@ -21,6 +20,17 @@ type RealCustomer = {
   id: string; name: string; phone: string;
   email: string | null; address: string | null;
   vehicles: RealVehicle[];
+};
+
+type CatalogueItem = {
+  id: string; name: string; category: string;
+  basePrice: number; durationMinutes: number;
+  warrantyDays?: number | null; description?: string | null; isActive: boolean;
+};
+
+type RealMechanic = {
+  id: string; name: string; phone: string | null;
+  isAvailable: boolean; rating: number | null;
 };
 
 function normalizeVehicleType(dbType: string): "4W" | "2W" {
@@ -468,7 +478,7 @@ function IssueStep({ form, setForm }: { form: FormState; setForm: (f: FormState)
 
 // ── Step 4: Services ──────────────────────────────────────────────
 
-function ServicesStep({ form, setForm }: { form: FormState; setForm: (f: FormState) => void }) {
+function ServicesStep({ form, setForm, catalogue }: { form: FormState; setForm: (f: FormState) => void; catalogue: CatalogueItem[] }) {
   const [showCSForm, setShowCSForm] = useState(false);
   const [csName, setCsName] = useState("");
   const [csPrice, setCsPrice] = useState("");
@@ -488,7 +498,8 @@ function ServicesStep({ form, setForm }: { form: FormState; setForm: (f: FormSta
     ? ["2W", "Wash", "Accessory"]
     : ["4W", "AC", "Wash", "Accessory", "Body"];
 
-  const catalog = serviceCatalog.filter((s) => orderedCategories.includes(s.category));
+  const activeCatalogue = catalogue.filter(s => s.isActive);
+  const catalog = activeCatalogue.filter((s) => orderedCategories.includes(s.category as ServiceCategory));
   const byCategory = orderedCategories.map((cat) => ({
     cat,
     items: catalog.filter((s) => s.category === cat),
@@ -497,14 +508,14 @@ function ServicesStep({ form, setForm }: { form: FormState; setForm: (f: FormSta
   const searchResults = useMemo(() => {
     if (!serviceSearch.trim()) return null;
     const q = serviceSearch.toLowerCase();
-    return serviceCatalog.filter(
+    return activeCatalogue.filter(
       (s) => s.name.toLowerCase().includes(q) || (s.description ?? "").toLowerCase().includes(q)
     );
-  }, [serviceSearch]);
+  }, [serviceSearch, activeCatalogue]);
 
   function calcDuration(ids: string[], customs: CustomService[]): number {
     const mins =
-      serviceCatalog.filter((s) => ids.includes(s.id)).reduce((s, i) => s + i.durationMinutes, 0) +
+      activeCatalogue.filter((s) => ids.includes(s.id)).reduce((s, i) => s + i.durationMinutes, 0) +
       customs.reduce((s, c) => s + c.durationMinutes, 0);
     const base = mins || 60;
     return form.serviceType === "doorstep" ? base + form.travelTimeMinutes : base;
@@ -547,7 +558,7 @@ function ServicesStep({ form, setForm }: { form: FormState; setForm: (f: FormSta
     setForm({ ...form, parts: form.parts.filter((p) => p.id !== id) });
   }
 
-  const catalogTotal = serviceCatalog.filter((s) => form.selectedServiceIds.includes(s.id)).reduce((sum, s) => sum + s.basePrice, 0);
+  const catalogTotal = activeCatalogue.filter((s) => form.selectedServiceIds.includes(s.id)).reduce((sum, s) => sum + s.basePrice, 0);
   const customTotal = form.customServices.reduce((sum, c) => sum + c.price, 0);
   const partsTotal = form.parts.reduce((sum, p) => sum + p.qty * p.unitPrice, 0);
   const total = catalogTotal + customTotal + partsTotal;
@@ -717,7 +728,7 @@ function ServicesStep({ form, setForm }: { form: FormState; setForm: (f: FormSta
   );
 }
 
-function ServiceRow({ item, selected, onToggle }: { item: ServiceCatalogItem; selected: boolean; onToggle: () => void }) {
+function ServiceRow({ item, selected, onToggle }: { item: CatalogueItem; selected: boolean; onToggle: () => void }) {
   return (
     <label className={`flex items-center gap-3 p-2.5 rounded-lg border cursor-pointer transition-colors ${selected ? "bg-brand-navy-50 border-brand-navy-300" : "bg-white border-slate-200 hover:border-slate-300"}`}>
       <input
@@ -843,43 +854,27 @@ const statusColor: Record<string, string> = {
   free: "text-green-700", on_the_way: "text-amber-700", on_job: "text-blue-700", off_duty: "text-slate-400", break: "text-amber-600",
 };
 
-function MechanicCard({
-  m, form, setForm,
-}: {
-  m: typeof mechanics[0];
-  form: FormState;
-  setForm: (f: FormState) => void;
-}) {
+function MechanicCard({ m, form, setForm }: { m: RealMechanic; form: FormState; setForm: (f: FormState) => void }) {
   const isSelected = form.mechanicId === m.id;
-
   return (
     <div className={`rounded-lg border overflow-hidden transition-colors ${isSelected ? "border-brand-navy-400" : "border-slate-200"}`}>
       <button
         onClick={() => setForm({ ...form, mechanicId: m.id })}
-        className={`w-full flex items-center gap-3 p-3 text-left transition-colors ${
-          isSelected ? "bg-brand-navy-50" : "bg-white hover:bg-slate-50"
-        }`}
+        className={`w-full flex items-center gap-3 p-3 text-left transition-colors ${isSelected ? "bg-brand-navy-50" : "bg-white hover:bg-slate-50"}`}
       >
         <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold flex-shrink-0 ${isSelected ? "bg-brand-navy-200 text-brand-navy-800" : "bg-slate-100 text-slate-600"}`}>
           {m.name.split(" ").map((w) => w[0]).join("").slice(0, 2)}
         </div>
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <p className={`text-sm font-medium ${isSelected ? "text-brand-navy-800" : "text-slate-800"}`}>{m.name}</p>
-          </div>
-          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-            <span className={`text-[11px] font-medium ${statusColor[m.currentStatus] ?? "text-slate-500"}`}>
-              {statusLabel[m.currentStatus] ?? m.currentStatus}
+          <p className={`text-sm font-medium ${isSelected ? "text-brand-navy-800" : "text-slate-800"}`}>{m.name}</p>
+          <div className="flex items-center gap-2 mt-0.5">
+            <span className={`text-[11px] font-medium ${m.isAvailable ? "text-green-700" : "text-slate-400"}`}>
+              {m.isAvailable ? "Available" : "On job"}
             </span>
-            <span className="text-[10px] text-slate-400">·</span>
-            <span className="text-[11px] text-slate-400">{m.todaysJobCount} job{m.todaysJobCount !== 1 ? "s" : ""} today</span>
-            <span className="text-[10px] text-slate-400">·</span>
-            <span className="text-[11px] text-slate-400">⭐ {m.rating}</span>
-          </div>
-          <div className="flex flex-wrap gap-1 mt-1.5">
-            {m.skills.map((s) => (
-              <span key={s} className={`text-[9px] font-medium px-1.5 py-0.5 rounded border ${SKILL_COLORS[s] ?? "text-slate-600 bg-slate-100 border-slate-200"}`}>{s}</span>
-            ))}
+            {m.rating != null && m.rating > 0 && (
+              <span className="text-[11px] text-slate-400">· ⭐ {m.rating.toFixed(1)}</span>
+            )}
+            {m.phone && <span className="text-[10px] text-slate-400 tabular-nums">· {m.phone}</span>}
           </div>
         </div>
         {isSelected && <Check className="w-4 h-4 text-brand-navy-700 flex-shrink-0" />}
@@ -888,10 +883,10 @@ function MechanicCard({
   );
 }
 
-function computeSplitGroups(form: FormState) {
+function computeSplitGroups(form: FormState, catalogue: CatalogueItem[]) {
   const byCategory: Record<string, number> = {};
   for (const id of form.selectedServiceIds) {
-    const item = serviceCatalog.find((s) => s.id === id);
+    const item = catalogue.find((s) => s.id === id);
     if (!item) continue;
     byCategory[item.category] = (byCategory[item.category] ?? 0) + 1;
   }
@@ -906,37 +901,11 @@ function computeSplitGroups(form: FormState) {
   return groups;
 }
 
-const CATEGORY_FALLBACK_SKILLS = new Set(["Wash", "Accessory", "Body", "Custom"]);
+function MechanicStep({ form, setForm, realMechanics, catalogue }: { form: FormState; setForm: (f: FormState) => void; realMechanics: RealMechanic[]; catalogue: CatalogueItem[] }) {
+  const available = realMechanics.filter(m => m.isAvailable);
+  const unavailable = realMechanics.filter(m => !m.isAvailable);
 
-function mechanicsForGroup(category: string): typeof mechanics {
-  if (CATEGORY_FALLBACK_SKILLS.has(category)) return mechanics;
-  return mechanics.filter((m) => m.skills.includes(category as "4W" | "2W" | "AC" | "Accessory" | "Body"));
-}
-
-function MechanicStep({ form, setForm }: { form: FormState; setForm: (f: FormState) => void }) {
-  const selectedVehicle = form.customerVehicles.find((v) => v.id === form.vehicleId);
-  const vType: "4W" | "2W" | undefined = selectedVehicle
-    ? normalizeVehicleType(selectedVehicle.type)
-    : form.newVehicle?.type;
-
-  const scored = mechanics.map((m) => {
-    const skillMatch = vType ? m.skills.includes(vType as "4W" | "2W") : false;
-    const freeNow = m.currentStatus === "free";
-    return { m, skillMatch, freeNow };
-  });
-
-  function sortGroup(arr: typeof scored) {
-    return [...arr].sort((a, b) => {
-      const aS = (a.skillMatch ? 2 : 0) + a.m.rating * 0.1;
-      const bS = (b.skillMatch ? 2 : 0) + b.m.rating * 0.1;
-      return bS - aS;
-    });
-  }
-
-  const available = sortGroup(scored.filter((x) => x.freeNow));
-  const unavailable = sortGroup(scored.filter((x) => !x.freeNow));
-
-  const splitGroups = computeSplitGroups(form);
+  const splitGroups = computeSplitGroups(form, catalogue);
 
   function toggleSplit(on: boolean) {
     setForm({ ...form, useSplitAssignment: on, groupMechanics: on ? form.groupMechanics : {} });
@@ -970,7 +939,6 @@ function MechanicStep({ form, setForm }: { form: FormState; setForm: (f: FormSta
             </div>
           )}
           {splitGroups.map((group) => {
-            const eligibleMechs = mechanicsForGroup(group.category);
             const selectedMechId = form.groupMechanics[group.category] ?? "";
             return (
               <div key={group.category} className="border border-slate-200 rounded-lg overflow-hidden">
@@ -983,28 +951,16 @@ function MechanicStep({ form, setForm }: { form: FormState; setForm: (f: FormSta
                 <div className="p-3">
                   <select
                     value={selectedMechId}
-                    onChange={(e) =>
-                      setForm({ ...form, groupMechanics: { ...form.groupMechanics, [group.category]: e.target.value } })
-                    }
+                    onChange={(e) => setForm({ ...form, groupMechanics: { ...form.groupMechanics, [group.category]: e.target.value } })}
                     className="w-full h-9 px-3 text-sm border border-slate-200 rounded-md bg-white text-slate-800 focus:outline-none focus:border-brand-navy-400 transition-colors"
                   >
                     <option value="">— Assign later —</option>
-                    {eligibleMechs.map((m) => (
+                    {realMechanics.map((m) => (
                       <option key={m.id} value={m.id}>
-                        {m.name} · ⭐{m.rating} · {m.currentStatus === "free" ? "Free now" : m.currentStatus.replace("_", " ")}
+                        {m.name} · {m.isAvailable ? "Available" : "On job"}
                       </option>
                     ))}
                   </select>
-                  {selectedMechId && (() => {
-                    const mech = eligibleMechs.find((m) => m.id === selectedMechId);
-                    return mech ? (
-                      <div className="mt-2 flex flex-wrap gap-1">
-                        {mech.skills.map((s) => (
-                          <span key={s} className={`text-[9px] font-medium px-1.5 py-0.5 rounded border ${SKILL_COLORS[s] ?? "text-slate-600 bg-slate-100 border-slate-200"}`}>{s}</span>
-                        ))}
-                      </div>
-                    ) : null;
-                  })()}
                 </div>
               </div>
             );
@@ -1017,9 +973,7 @@ function MechanicStep({ form, setForm }: { form: FormState; setForm: (f: FormSta
         </div>
       ) : (
         <>
-          <p className="text-[11px] text-slate-500 mb-2">
-            {vType ? <>Skill match for <span className="font-medium">{vType}</span> prioritised.</> : "Showing all mechanics."}
-          </p>
+          <p className="text-[11px] text-slate-500 mb-2">Showing all mechanics.</p>
 
           {available.length > 0 && (
             <>
@@ -1028,7 +982,7 @@ function MechanicStep({ form, setForm }: { form: FormState; setForm: (f: FormSta
                 <div className="flex-1 h-px bg-green-200" />
                 <span className="text-[10px] text-green-600">{available.length}</span>
               </div>
-              {available.map(({ m }) => (
+              {available.map((m) => (
                 <MechanicCard key={m.id} m={m} form={form} setForm={setForm} />
               ))}
             </>
@@ -1041,7 +995,7 @@ function MechanicStep({ form, setForm }: { form: FormState; setForm: (f: FormSta
                 <div className="flex-1 h-px bg-slate-200" />
                 <span className="text-[10px] text-slate-400">{unavailable.length}</span>
               </div>
-              {unavailable.map(({ m }) => (
+              {unavailable.map((m) => (
                 <MechanicCard key={m.id} m={m} form={form} setForm={setForm} />
               ))}
             </>
@@ -1065,11 +1019,11 @@ function MechanicStep({ form, setForm }: { form: FormState; setForm: (f: FormSta
 
 // ── Step 7: Review ────────────────────────────────────────────────
 
-function ReviewStep({ form, setForm }: { form: FormState; setForm: (f: FormState) => void }) {
+function ReviewStep({ form, setForm, catalogue, realMechanics }: { form: FormState; setForm: (f: FormState) => void; catalogue: CatalogueItem[]; realMechanics: RealMechanic[] }) {
   const customer = form.selectedCustomer;
   const vehicle = form.customerVehicles.find((v) => v.id === form.vehicleId) ?? null;
-  const mechanic = mechanics.find((m) => m.id === form.mechanicId);
-  const selectedServices = serviceCatalog.filter((s) => form.selectedServiceIds.includes(s.id));
+  const mechanic = realMechanics.find((m) => m.id === form.mechanicId);
+  const selectedServices = catalogue.filter((s) => form.selectedServiceIds.includes(s.id));
   const catalogTotal = selectedServices.reduce((sum, s) => sum + s.basePrice, 0);
   const catalogMinutes = selectedServices.reduce((sum, s) => sum + s.durationMinutes, 0);
   const customTotal = form.customServices.reduce((sum, c) => sum + c.price, 0);
@@ -1097,7 +1051,7 @@ function ReviewStep({ form, setForm }: { form: FormState; setForm: (f: FormState
         <InfoCard label="Service type" value={form.serviceType === "doorstep" ? "Doorstep" : "Garage"} />
         <InfoCard label="Schedule" value={fmtSchedule()} />
         {!form.useSplitAssignment && (
-          <InfoCard label="Mechanic" value={mechanic?.name ?? "Unassigned"} sub={mechanic ? `${mechanic.todaysJobCount} jobs today` : undefined} />
+          <InfoCard label="Mechanic" value={mechanic?.name ?? "Unassigned"} sub={mechanic ? (mechanic.isAvailable ? "Available" : "On job") : undefined} />
         )}
         <InfoCard label="Duration" value={form.schedulingPreference === "specific" ? `${form.durationMinutes} min` : "—"} />
         <InfoCard label="Travel time" value={form.serviceType === "doorstep" ? `${form.travelTimeMinutes} min (one-way)` : "N/A"} />
@@ -1105,13 +1059,13 @@ function ReviewStep({ form, setForm }: { form: FormState; setForm: (f: FormState
       </div>
 
       {form.useSplitAssignment && (() => {
-        const splitGroups = computeSplitGroups(form);
+        const splitGroups = computeSplitGroups(form, catalogue);
         return splitGroups.length > 0 ? (
           <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
             <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide px-3 py-2 border-b border-slate-100">Split Assignment</p>
             {splitGroups.map((group) => {
               const mechId = form.groupMechanics[group.category] ?? "";
-              const mech = mechanics.find((m) => m.id === mechId);
+              const mech = realMechanics.find((m) => m.id === mechId);
               return (
                 <div key={group.category} className="flex items-center justify-between px-3 py-2 border-b border-slate-50">
                   <div>
@@ -1226,6 +1180,8 @@ function NewServiceRequestContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [allCustomers, setAllCustomers] = useState<RealCustomer[]>([]);
+  const [catalogue, setCatalogue] = useState<CatalogueItem[]>([]);
+  const [realMechanics, setRealMechanics] = useState<RealMechanic[]>([]);
   const [saving, setSaving] = useState(false);
 
   const [step, setStep] = useState(() => {
@@ -1247,7 +1203,6 @@ function NewServiceRequestContent() {
       .then((r) => r.json())
       .then((data: RealCustomer[]) => {
         setAllCustomers(data);
-        // If customerId is pre-filled (from deep link), hydrate selectedCustomer
         const prefilledId = searchParams.get("customerId");
         if (prefilledId) {
           const c = data.find((x) => x.id === prefilledId);
@@ -1262,6 +1217,18 @@ function NewServiceRequestContent() {
             }));
           }
         }
+      });
+
+    fetch("/api/service-catalogue")
+      .then((r) => r.json())
+      .then((data: CatalogueItem[]) => {
+        setCatalogue(data.filter((i) => i.isActive));
+      });
+
+    fetch("/api/mechanics")
+      .then((r) => r.json())
+      .then((data: RealMechanic[]) => {
+        setRealMechanics(data);
       });
   }, []);
 
@@ -1336,6 +1303,39 @@ function NewServiceRequestContent() {
       }
 
       const sr = await srRes.json();
+
+      // Post selected catalogue services as SRItems
+      const itemPromises: Promise<Response>[] = [];
+      for (const serviceId of form.selectedServiceIds) {
+        const cat = catalogue.find((c) => c.id === serviceId);
+        if (!cat) continue;
+        itemPromises.push(
+          fetch(`/api/service-requests/${sr.id}/items`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              description: cat.name,
+              unitPrice: cat.basePrice,
+              quantity: 1,
+            }),
+          })
+        );
+      }
+      for (const cs of form.customServices) {
+        itemPromises.push(
+          fetch(`/api/service-requests/${sr.id}/items`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              description: cs.name,
+              unitPrice: cs.price,
+              quantity: 1,
+            }),
+          })
+        );
+      }
+      await Promise.allSettled(itemPromises);
+
       toast.success(`Service request ${sr.srNumber} created`);
       router.push(`/services/${sr.id}`);
     } catch {
@@ -1349,10 +1349,10 @@ function NewServiceRequestContent() {
     <CustomerStep key="customer" form={form} setForm={setForm} allCustomers={allCustomers} />,
     <VehicleStep key="vehicle" form={form} setForm={setForm} />,
     <IssueStep key="issue" form={form} setForm={setForm} />,
-    <ServicesStep key="services" form={form} setForm={setForm} />,
+    <ServicesStep key="services" form={form} setForm={setForm} catalogue={catalogue} />,
     <ScheduleStep key="schedule" form={form} setForm={setForm} />,
-    <MechanicStep key="mechanic" form={form} setForm={setForm} />,
-    <ReviewStep key="review" form={form} setForm={setForm} />,
+    <MechanicStep key="mechanic" form={form} setForm={setForm} realMechanics={realMechanics} catalogue={catalogue} />,
+    <ReviewStep key="review" form={form} setForm={setForm} catalogue={catalogue} realMechanics={realMechanics} />,
   ];
 
   return (

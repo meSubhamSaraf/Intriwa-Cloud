@@ -5,7 +5,7 @@ import {
   ChevronLeft, ChevronRight, CheckCircle2, XCircle,
   Clock, AlertCircle, Save, Calendar,
 } from "lucide-react";
-import { type AttendanceStatus } from "@/lib/mock-data/attendance";
+type AttendanceStatus = "present" | "absent" | "half_day" | "overtime";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 

@@ -9,10 +9,6 @@ import {
   AlertCircle, Upload, LayoutDashboard,
   Wallet, User, BadgeCheck, Mail, Send,
 } from "lucide-react";
-import { mechanics, type MechanicStatus } from "@/lib/mock-data/mechanics";
-import { serviceRequests, ServiceRequest } from "@/lib/mock-data/serviceRequests";
-import { customers } from "@/lib/mock-data/customers";
-import { vehicles } from "@/lib/mock-data/vehicles";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 
@@ -25,6 +21,19 @@ const END_HOUR = 19;
 const TOTAL_HOURS = END_HOUR - START_HOUR;
 
 // ── API types ─────────────────────────────────────────────────────
+
+type MechanicStatus = "free" | "break" | "off_duty";
+
+type ApiSR = {
+  id: string;
+  srNumber: string;
+  status: string;
+  scheduledAt: string | null;
+  complaint: string | null;
+  locationType: string;
+  estimatedAmount?: number;
+  finalAmount?: number | null;
+};
 
 type APIMechanic = {
   id: string;
@@ -45,6 +54,8 @@ type APIMechanic = {
   emergencyContactName: string | null;
   emergencyContactPhone: string | null;
   rating: number | null;
+  skills: { skillId: string; mechanic: { label: string } }[];
+  serviceRequests: ApiSR[];
 };
 
 type AuditLog = {
@@ -102,8 +113,8 @@ function durationToPx(minutes: number): number { return (minutes / 60) * HOUR_HE
 type JobBlock = {
   id: string; srId?: string; date: string; startTime: string;
   durationMinutes: number; customerName: string; serviceLabel: string;
-  status: ServiceRequest["status"] | "completed_past";
-  locationType: "doorstep" | "garage"; amount: number;
+  status: string;
+  locationType: string; amount: number;
 };
 
 const SYNTH_CUSTOMERS = [
@@ -147,34 +158,20 @@ function generateSyntheticJobs(mechId: string, date: string, count: number): Job
   return jobs;
 }
 
-function buildWeekJobs(mechId: string, weekDays: Date[]): JobBlock[] {
-  const real: JobBlock[] = serviceRequests
-    .filter((sr) => sr.assignedMechanicId === mechId && sr.scheduledAt)
+function buildWeekJobsFromApi(srs: ApiSR[], weekDays: Date[]): JobBlock[] {
+  const weekDatesIso = new Set(weekDays.map(toIso));
+  return srs
+    .filter((sr) => sr.scheduledAt && weekDatesIso.has(sr.scheduledAt.slice(0, 10)))
     .map((sr) => {
-      const c = customers.find((c) => c.id === sr.customerId);
       const dt = sr.scheduledAt!;
       return {
         id: sr.id, srId: sr.id, date: dt.slice(0, 10), startTime: dt.slice(11, 16),
-        durationMinutes: sr.serviceItems.reduce((s, _) => s + 60, 0),
-        customerName: c?.name ?? "—", serviceLabel: sr.serviceItems[0]?.name ?? "Service",
-        status: sr.status, locationType: sr.locationType, amount: sr.estimatedAmount,
+        durationMinutes: 60,
+        customerName: sr.srNumber, serviceLabel: sr.complaint ?? "Service",
+        status: sr.status, locationType: sr.locationType,
+        amount: sr.finalAmount ?? sr.estimatedAmount ?? 0,
       };
     });
-  const realDates = new Set(real.map((j) => j.date));
-  const weekDatesIso = weekDays.map(toIso);
-  const todayDate = new Date(TODAY);
-  const synth: JobBlock[] = [];
-  weekDatesIso.forEach((iso) => {
-    if (!realDates.has(iso)) {
-      const d = new Date(iso);
-      if (d < todayDate) {
-        const rng = seedRng(mechId.charCodeAt(4) + iso.charCodeAt(8));
-        const cnt = Math.floor(rng() * 2) + 2;
-        synth.push(...generateSyntheticJobs(mechId, iso, cnt));
-      }
-    }
-  });
-  return [...real, ...synth].filter((j) => weekDatesIso.includes(j.date));
 }
 
 // ── Color helpers ─────────────────────────────────────────────────
@@ -246,7 +243,14 @@ function StatCard({ label, value, sub, icon }: {
 }
 
 function WeekSchedule({ mechId, weekDays }: { mechId: string; weekDays: Date[] }) {
-  const jobs = buildWeekJobs(mechId, weekDays);
+  const [srs, setSrs] = useState<ApiSR[]>([]);
+  useEffect(() => {
+    fetch(`/api/mechanics/${mechId}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data?.serviceRequests) setSrs(data.serviceRequests); })
+      .catch(() => {});
+  }, [mechId]);
+  const jobs = buildWeekJobsFromApi(srs, weekDays);
   const hours = Array.from({ length: TOTAL_HOURS }, (_, i) => START_HOUR + i);
   const todayIso = TODAY;
   return (
@@ -328,60 +332,50 @@ function WeekSchedule({ mechId, weekDays }: { mechId: string; weekDays: Date[] }
 }
 
 function PastJobsTable({ mechId }: { mechId: string }) {
-  const jobs = serviceRequests
-    .filter((sr) => sr.assignedMechanicId === mechId)
-    .sort((a, b) => (b.scheduledAt ?? "").localeCompare(a.scheduledAt ?? ""));
+  const [jobs, setJobs] = useState<ApiSR[]>([]);
+  useEffect(() => {
+    fetch(`/api/mechanics/${mechId}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data?.serviceRequests) setJobs(data.serviceRequests); })
+      .catch(() => {});
+  }, [mechId]);
   const statusBadge: Record<string, string> = {
-    paid: "text-green-700 bg-green-50 border-green-200", completed: "text-green-700 bg-green-50 border-green-200",
-    invoiced: "text-teal-700 bg-teal-50 border-teal-200", in_progress: "text-blue-700 bg-blue-50 border-blue-200",
-    awaiting_approval: "text-amber-700 bg-amber-50 border-amber-200", scheduled: "text-slate-600 bg-slate-100 border-slate-200",
-  };
-  const statusLabel: Record<string, string> = {
-    paid: "Paid", completed: "Completed", invoiced: "Invoiced",
-    in_progress: "In Progress", awaiting_approval: "Awaiting Approval", scheduled: "Scheduled",
+    CLOSED: "text-green-700 bg-green-50 border-green-200",
+    INVOICED: "text-teal-700 bg-teal-50 border-teal-200",
+    IN_PROGRESS: "text-blue-700 bg-blue-50 border-blue-200",
+    OPEN: "text-slate-600 bg-slate-100 border-slate-200",
   };
   return (
     <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-slate-200 bg-slate-50">
-            {["Date", "Customer", "Vehicle", "Services", "Amount", "Status", ""].map((h) => (
+            {["SR #", "Date", "Complaint", "Amount", "Status", ""].map((h) => (
               <th key={h} className="px-3 py-2.5 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
             ))}
           </tr>
         </thead>
         <tbody>
-          {jobs.map((sr) => {
-            const c = customers.find((c) => c.id === sr.customerId);
-            const v = vehicles.find((v) => v.id === sr.vehicleId);
-            return (
-              <tr key={sr.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
-                <td className="px-3 py-2.5 text-[12px] text-slate-600 whitespace-nowrap tabular-nums">{fmtDate(sr.scheduledAt)}</td>
-                <td className="px-3 py-2.5">
-                  <p className="text-sm font-medium text-slate-800">{c?.name ?? "—"}</p>
-                  <p className="text-[11px] text-slate-400 tabular-nums">{c?.phone ?? ""}</p>
-                </td>
-                <td className="px-3 py-2.5 text-[12px] text-slate-600">
-                  {v ? `${v.make} ${v.model}` : "—"}
-                  <p className="text-[11px] text-slate-400">{v?.registration}</p>
-                </td>
-                <td className="px-3 py-2.5 max-w-[200px]">
-                  <p className="text-[12px] text-slate-700 truncate">{sr.serviceItems.map((s) => s.name).join(", ")}</p>
-                </td>
-                <td className="px-3 py-2.5 text-[12px] font-medium text-slate-700 tabular-nums">{fmtRupee(sr.finalAmount ?? sr.estimatedAmount)}</td>
-                <td className="px-3 py-2.5">
-                  <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded border ${statusBadge[sr.status] ?? "text-slate-600 bg-slate-100 border-slate-200"}`}>
-                    {statusLabel[sr.status] ?? sr.status}
-                  </span>
-                </td>
-                <td className="px-3 py-2.5">
-                  <Link href={`/services/${sr.id}`} className="w-7 h-7 flex items-center justify-center rounded text-slate-400 hover:text-brand-navy-600 hover:bg-brand-navy-50 transition-colors">
-                    <ChevronRight className="w-3.5 h-3.5" />
-                  </Link>
-                </td>
-              </tr>
-            );
-          })}
+          {jobs.map((sr) => (
+            <tr key={sr.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+              <td className="px-3 py-2.5 text-[12px] font-medium text-slate-700 tabular-nums">{sr.srNumber}</td>
+              <td className="px-3 py-2.5 text-[12px] text-slate-600 whitespace-nowrap tabular-nums">{fmtDate(sr.scheduledAt)}</td>
+              <td className="px-3 py-2.5 text-[12px] text-slate-600 max-w-[200px] truncate">{sr.complaint ?? "—"}</td>
+              <td className="px-3 py-2.5 text-[12px] font-medium text-slate-700 tabular-nums">
+                {sr.finalAmount != null ? fmtRupee(sr.finalAmount) : sr.estimatedAmount != null ? fmtRupee(sr.estimatedAmount) : "—"}
+              </td>
+              <td className="px-3 py-2.5">
+                <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded border ${statusBadge[sr.status] ?? "text-slate-600 bg-slate-100 border-slate-200"}`}>
+                  {sr.status}
+                </span>
+              </td>
+              <td className="px-3 py-2.5">
+                <Link href={`/services/${sr.id}`} className="w-7 h-7 flex items-center justify-center rounded text-slate-400 hover:text-brand-navy-600 hover:bg-brand-navy-50 transition-colors">
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </Link>
+              </td>
+            </tr>
+          ))}
         </tbody>
       </table>
       {jobs.length === 0 && <div className="text-center py-10 text-slate-400 text-sm">No service history.</div>}
@@ -659,31 +653,43 @@ export default function MechanicDetailPage() {
   const [tab, setTab] = useState<Tab>("overview");
   const [weekOffset, setWeekOffset] = useState(0);
   const [apiMechanic, setApiMechanic] = useState<APIMechanic | null>(null);
+  const [loading, setLoading] = useState(true);
   const [editingEmail, setEditingEmail] = useState(false);
   const [emailDraft, setEmailDraft] = useState("");
   const [savingEmail, setSavingEmail] = useState(false);
   const [sendingReset, setSendingReset] = useState(false);
   const [resetSent, setResetSent] = useState(false);
-
-  // Fall back to mock data for the schedule view
-  const mech = mechanics.find((m) => m.id === id);
-
-  // Editable local state (backed by mock for now)
-  const [localStatus, setLocalStatus] = useState<MechanicStatus>(mech?.currentStatus ?? "free");
-  const [localSkills, setLocalSkills] = useState<string[]>((mech?.skills ?? []) as string[]);
+  const [localStatus, setLocalStatus] = useState<MechanicStatus>("free");
+  const [localSkills, setLocalSkills] = useState<string[]>([]);
   const [editingSkills, setEditingSkills] = useState(false);
+  const [savingSkills, setSavingSkills] = useState(false);
   const [customSkillInput, setCustomSkillInput] = useState("");
-  const [localHours, setLocalHours] = useState(mech?.workingHours ?? { start: "08:00", end: "18:00", days: ["Mon","Tue","Wed","Thu","Fri","Sat"] });
+  const [localHours, setLocalHours] = useState({ start: "08:00", end: "18:00", days: ["Mon","Tue","Wed","Thu","Fri","Sat"] });
   const [editingHours, setEditingHours] = useState(false);
 
   useEffect(() => {
     fetch(`/api/mechanics/${id}`)
       .then(r => r.ok ? r.json() : null)
-      .then(data => { if (data) setApiMechanic(data); })
-      .catch(() => {});
+      .then(data => {
+        if (data) {
+          setApiMechanic(data);
+          setLocalStatus(data.isAvailable ? "free" : "off_duty");
+          setLocalSkills(data.skills?.map((s: { mechanic: { label: string } }) => s.mechanic.label) ?? []);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, [id]);
 
-  if (!mech && !apiMechanic) {
+  if (loading) {
+    return (
+      <div className="p-4 flex items-center justify-center py-16 text-slate-400 text-sm">
+        Loading…
+      </div>
+    );
+  }
+
+  if (!apiMechanic) {
     return (
       <div className="p-4">
         <button onClick={() => router.back()} className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-800 mb-4">
@@ -694,10 +700,10 @@ export default function MechanicDetailPage() {
     );
   }
 
-  const displayName = apiMechanic?.name ?? mech?.name ?? "—";
-  const displayPhone = apiMechanic?.phone ?? mech?.phone ?? "—";
-  const displayEmployment = apiMechanic?.employmentType ?? (mech?.employmentType === "employee" ? "FULL_TIME" : "FREELANCE");
-  const displayRating = apiMechanic?.rating ?? mech?.rating ?? 0;
+  const displayName = apiMechanic.name;
+  const displayPhone = apiMechanic.phone ?? "—";
+  const displayEmployment = apiMechanic.employmentType;
+  const displayRating = apiMechanic.rating ?? 0;
 
   const anchorDate = new Date(TODAY);
   anchorDate.setDate(anchorDate.getDate() + weekOffset * 7);
@@ -705,12 +711,13 @@ export default function MechanicDetailPage() {
   const weekLabel = `${fmtDay(weekDays[0])} – ${fmtDay(weekDays[6])}`;
   const isCurrentWeek = weekOffset === 0;
 
-  const monthJobs = mech ? serviceRequests.filter((sr) => sr.assignedMechanicId === mech.id) : [];
-  const totalRevenue = monthJobs.reduce((s, sr) => s + (sr.finalAmount ?? sr.estimatedAmount), 0);
+  const allSRs = apiMechanic.serviceRequests ?? [];
+  const monthJobs = allSRs;
   const weekEarnings = weekDays.map((d) => {
     const iso = toIso(d);
-    const dayJobs = mech ? serviceRequests.filter((sr) => sr.assignedMechanicId === mech.id && sr.scheduledAt?.startsWith(iso)) : [];
-    const earned = dayJobs.filter((sr) => ["completed","invoiced","paid"].includes(sr.status)).reduce((s, sr) => s + (sr.finalAmount ?? sr.estimatedAmount), 0);
+    const dayJobs = allSRs.filter((sr) => sr.scheduledAt?.startsWith(iso));
+    const earned = dayJobs.filter((sr) => ["COMPLETED","INVOICED","CLOSED"].includes(sr.status))
+      .reduce((s, sr) => s + (sr.finalAmount ?? sr.estimatedAmount ?? 0), 0);
     return { d, iso, count: dayJobs.length, earned };
   });
   const maxEarned = Math.max(...weekEarnings.map((e) => e.earned), 1);
@@ -891,12 +898,20 @@ export default function MechanicDetailPage() {
               </div>
             )}
 
-            {/* Availability status (mock-based) */}
+            {/* Availability status */}
             <div className="mb-3">
               <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Status</p>
               <div className="flex items-center gap-1.5 flex-wrap">
                 {AVAIL_STATUSES.map((s) => (
-                  <button key={s.value} onClick={() => { setLocalStatus(s.value); toast.success(`Status set to ${s.label}`); }}
+                  <button key={s.value} onClick={async () => {
+                    setLocalStatus(s.value);
+                    await fetch(`/api/mechanics/${id}/availability`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ isAvailable: s.value === "free" }),
+                    });
+                    toast.success(`Status set to ${s.label}`);
+                  }}
                     className={`flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded border transition-colors ${
                       localStatus === s.value ? s.btn + " ring-1 ring-offset-1 ring-current" : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"
                     }`}>
@@ -917,11 +932,22 @@ export default function MechanicDetailPage() {
                   </button>
                 ) : (
                   <div className="flex items-center gap-1.5">
-                    <button onClick={() => { setEditingSkills(false); toast.success("Skills updated"); }}
-                      className="flex items-center gap-0.5 text-[10px] font-medium text-green-700 hover:underline">
-                      <Save className="w-2.5 h-2.5" /> Save
+                    <button onClick={async () => {
+                      setSavingSkills(true);
+                      const res = await fetch(`/api/mechanics/${id}/skills`, {
+                        method: "PUT",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ labels: localSkills }),
+                      });
+                      setSavingSkills(false);
+                      if (res.ok) { setEditingSkills(false); toast.success("Skills updated"); }
+                      else toast.error("Failed to save skills");
+                    }}
+                      disabled={savingSkills}
+                      className="flex items-center gap-0.5 text-[10px] font-medium text-green-700 hover:underline disabled:opacity-60">
+                      <Save className="w-2.5 h-2.5" /> {savingSkills ? "Saving…" : "Save"}
                     </button>
-                    <button onClick={() => { setLocalSkills((mech?.skills ?? []) as string[]); setEditingSkills(false); }} className="text-[10px] text-slate-400 hover:text-slate-600">
+                    <button onClick={() => { setLocalSkills(apiMechanic.skills?.map(s => s.mechanic.label) ?? []); setEditingSkills(false); }} className="text-[10px] text-slate-400 hover:text-slate-600">
                       <X className="w-3 h-3" />
                     </button>
                   </div>
@@ -986,8 +1012,8 @@ export default function MechanicDetailPage() {
       {tab === "overview" && (
         <div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-            <StatCard label="Jobs this month" value={String(monthJobs.length)} sub={`${mech?.todaysJobCount ?? 0} today`} icon={<Briefcase className="w-4 h-4" />} />
-            <StatCard label="Revenue (month)" value={fmtRupee(mech?.monthlyRevenue ?? 0)} sub={`${fmtRupee(totalRevenue)} tracked`} icon={<TrendingUp className="w-4 h-4" />} />
+            <StatCard label="Recent jobs" value={String(monthJobs.length)} sub="last 10 on record" icon={<Briefcase className="w-4 h-4" />} />
+            <StatCard label="Tracked revenue" value={fmtRupee(weekEarnings.reduce((s, e) => s + e.earned, 0))} sub="this week" icon={<TrendingUp className="w-4 h-4" />} />
             <StatCard label="Avg rating" value={String(displayRating)} sub="out of 5.0" icon={<Star className="w-4 h-4" />} />
             <StatCard label="On-time rate" value="94%" sub="last 30 days" icon={<CheckCircle className="w-4 h-4" />} />
           </div>
@@ -1020,7 +1046,7 @@ export default function MechanicDetailPage() {
           </div>
 
           {/* Working hours */}
-          {mech && (
+          {(
             <div className="bg-white border border-slate-200 rounded-xl p-4 mb-4">
               <div className="flex items-center gap-2 mb-3">
                 <Clock className="w-3.5 h-3.5 text-slate-400" />
@@ -1035,7 +1061,7 @@ export default function MechanicDetailPage() {
                       className="flex items-center gap-0.5 text-[10px] font-medium text-green-700 hover:underline">
                       <Save className="w-2.5 h-2.5" /> Save
                     </button>
-                    <button onClick={() => { setLocalHours(mech.workingHours); setEditingHours(false); }} className="text-[10px] text-slate-400 hover:text-slate-600">
+                    <button onClick={() => { setLocalHours({ start: "08:00", end: "18:00", days: ["Mon","Tue","Wed","Thu","Fri","Sat"] }); setEditingHours(false); }} className="text-[10px] text-slate-400 hover:text-slate-600">
                       <X className="w-3 h-3" />
                     </button>
                   </div>
@@ -1066,20 +1092,18 @@ export default function MechanicDetailPage() {
           )}
 
           {/* Service history */}
-          {mech && (
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <h2 className="text-sm font-semibold text-slate-800">Recent Jobs</h2>
-                <button onClick={() => setTab("schedule")} className="text-[11px] text-brand-navy-600 hover:underline">View schedule →</button>
-              </div>
-              <PastJobsTable mechId={mech.id} />
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-sm font-semibold text-slate-800">Recent Jobs</h2>
+              <button onClick={() => setTab("schedule")} className="text-[11px] text-brand-navy-600 hover:underline">View schedule →</button>
             </div>
-          )}
+            <PastJobsTable mechId={apiMechanic.id} />
+          </div>
         </div>
       )}
 
       {/* Tab: Schedule */}
-      {tab === "schedule" && mech && (
+      {tab === "schedule" && (
         <div>
           <div className="flex items-center justify-between mb-3">
             <div>
@@ -1103,7 +1127,7 @@ export default function MechanicDetailPage() {
               </button>
             </div>
           </div>
-          <WeekSchedule mechId={mech.id} weekDays={weekDays} />
+          <WeekSchedule mechId={apiMechanic.id} weekDays={weekDays} />
         </div>
       )}
 

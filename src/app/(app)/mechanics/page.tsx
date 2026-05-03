@@ -2,17 +2,12 @@
 
 import { useState, useEffect, Suspense } from "react";
 import { useRouter } from "next/navigation";
-import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { Plus, Search, Phone, ArrowRight, Star, Briefcase, UserCog, X, FlaskConical } from "lucide-react";
+import { Plus, Search, Phone, ArrowRight, Star, UserCog, X } from "lucide-react";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { mechanics as mockMechanics, Mechanic, MechanicStatus } from "@/lib/mock-data/mechanics";
-import { serviceRequests } from "@/lib/mock-data/serviceRequests";
-import { customers } from "@/lib/mock-data/customers";
-import { vehicles } from "@/lib/mock-data/vehicles";
 import { toast } from "sonner";
 
-// ── DB → display adapter ──────────────────────────────────────────
+// ── Types ─────────────────────────────────────────────────────────
 
 type DbMechanic = {
   id: string;
@@ -22,72 +17,25 @@ type DbMechanic = {
   rating: number | null;
   isAvailable: boolean;
   isActive: boolean;
+  skills: { skillId: string; mechanic: { label: string } }[];
 };
-
-function dbToMechanic(m: DbMechanic): Mechanic {
-  return {
-    id: m.id,
-    userId: m.id,
-    name: m.name,
-    phone: m.phone ?? "—",
-    skills: [],
-    workingHours: { start: "—", end: "—", days: [] },
-    employmentType: m.employmentType === "FULL_TIME" || m.employmentType === "PART_TIME" ? "employee" : "freelance",
-    currentStatus: m.isAvailable ? "free" : "off_duty",
-    todaysJobCount: 0,
-    todaysCompletedCount: 0,
-    monthlyRevenue: 0,
-    rating: m.rating ?? 0,
-  };
-}
 
 // ── Helpers ───────────────────────────────────────────────────────
 
-type Skill = Mechanic["skills"][number];
-
-const ALL_SKILLS: Skill[] = ["2W", "4W", "AC", "Accessory", "Body", "Engine", "Electrical"];
-
-const SKILL_COLORS: Record<Skill, string> = {
-  "2W":         "text-violet-700 bg-violet-50 border-violet-200",
-  "4W":         "text-blue-700 bg-blue-50 border-blue-200",
-  AC:           "text-cyan-700 bg-cyan-50 border-cyan-200",
-  Accessory:    "text-amber-700 bg-amber-50 border-amber-200",
-  Body:         "text-pink-700 bg-pink-50 border-pink-200",
-  Engine:       "text-red-700 bg-red-50 border-red-200",
-  Electrical:   "text-yellow-700 bg-yellow-50 border-yellow-200",
+const SKILL_COLORS: Record<string, string> = {
+  "2W":       "text-violet-700 bg-violet-50 border-violet-200",
+  "4W":       "text-blue-700 bg-blue-50 border-blue-200",
+  AC:         "text-cyan-700 bg-cyan-50 border-cyan-200",
+  Accessory:  "text-amber-700 bg-amber-50 border-amber-200",
+  Body:       "text-pink-700 bg-pink-50 border-pink-200",
+  Engine:     "text-red-700 bg-red-50 border-red-200",
+  Electrical: "text-yellow-700 bg-yellow-50 border-yellow-200",
 };
 
-const STATUS_DOT: Record<MechanicStatus, string> = {
-  free:         "bg-green-500",
-  on_the_way:   "bg-amber-400",
-  on_job:       "bg-blue-500",
-  break:        "bg-amber-400",
-  off_duty:     "bg-slate-300",
+const EMPLOYMENT_LABELS: Record<string, string> = {
+  FULL_TIME: "Full-time", PART_TIME: "Part-time",
+  AFFILIATE: "Affiliate", FREELANCE: "Freelance",
 };
-
-const STATUS_LABEL: Record<MechanicStatus, string> = {
-  free:         "Free",
-  on_the_way:   "On the way",
-  on_job:       "On job",
-  break:        "On break",
-  off_duty:     "Off duty",
-};
-
-const STATUS_TEXT: Record<MechanicStatus, string> = {
-  free:         "text-green-700",
-  on_the_way:   "text-amber-700",
-  on_job:       "text-blue-700",
-  break:        "text-amber-600",
-  off_duty:     "text-slate-400",
-};
-
-function weeklyRevenue(monthly: number) {
-  return Math.round(monthly / 4.33);
-}
-
-function fmtRupee(n: number) {
-  return "₹" + n.toLocaleString("en-IN");
-}
 
 function avatarBg(name: string) {
   const colors = [
@@ -107,17 +55,11 @@ function initials(name: string) {
 
 // ── Card ──────────────────────────────────────────────────────────
 
-function MechanicCard({ mech }: { mech: Mechanic }) {
+function MechanicCard({ mech }: { mech: DbMechanic }) {
   const router = useRouter();
-  const currentSR = mech.currentJobId
-    ? serviceRequests.find((sr) => sr.id === mech.currentJobId)
-    : null;
-  const currentCustomer = currentSR ? customers.find((c) => c.id === currentSR.customerId) : null;
-  const currentVehicle = currentSR ? vehicles.find((v) => v.id === currentSR.vehicleId) : null;
-
+  const skills = mech.skills.map((s) => s.mechanic.label);
   return (
     <div onClick={() => router.push(`/mechanics/${mech.id}`)} className="bg-white border border-slate-200 rounded-lg p-4 flex flex-col gap-3 hover:border-slate-300 transition-colors cursor-pointer">
-      {/* Top row */}
       <div className="flex items-start gap-3">
         <div className={`w-11 h-11 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 ${avatarBg(mech.name)}`}>
           {initials(mech.name)}
@@ -125,87 +67,49 @@ function MechanicCard({ mech }: { mech: Mechanic }) {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <p className="text-sm font-semibold text-slate-800">{mech.name}</p>
-            <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded border ${
-              mech.employmentType === "employee"
-                ? "text-brand-navy-700 bg-brand-navy-50 border-brand-navy-200"
-                : "text-slate-600 bg-slate-100 border-slate-200"
-            }`}>
-              {mech.employmentType === "employee" ? "Employee" : "Freelance"}
+            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded border text-brand-navy-700 bg-brand-navy-50 border-brand-navy-200">
+              {EMPLOYMENT_LABELS[mech.employmentType] ?? mech.employmentType}
             </span>
           </div>
           <div className="flex items-center gap-1 mt-0.5 text-[11px] text-slate-400">
             <Phone className="w-3 h-3" />
-            <span className="tabular-nums">{mech.phone}</span>
+            <span className="tabular-nums">{mech.phone ?? "—"}</span>
           </div>
         </div>
         <Link
           href={`/mechanics/${mech.id}`}
+          onClick={(e) => e.stopPropagation()}
           className="w-7 h-7 flex items-center justify-center rounded text-slate-400 hover:text-brand-navy-600 hover:bg-brand-navy-50 transition-colors flex-shrink-0"
         >
           <ArrowRight className="w-3.5 h-3.5" />
         </Link>
       </div>
 
-      {/* Status */}
-      <div className="flex items-center gap-2">
-        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${STATUS_DOT[mech.currentStatus]}`} />
-        <span className={`text-[12px] font-medium ${STATUS_TEXT[mech.currentStatus]}`}>
-          {STATUS_LABEL[mech.currentStatus]}
-        </span>
-        {currentSR && currentCustomer && currentVehicle && (
-          <span className="text-[11px] text-slate-400">
-            — {currentCustomer.name}, {currentVehicle.make} {currentVehicle.model}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className={`w-2 h-2 rounded-full flex-shrink-0 ${mech.isAvailable ? "bg-green-500" : "bg-slate-300"}`} />
+          <span className={`text-[12px] font-medium ${mech.isAvailable ? "text-green-700" : "text-slate-400"}`}>
+            {mech.isAvailable ? "Available" : "Off duty"}
           </span>
+        </div>
+        {mech.rating != null && (
+          <div className="flex items-center gap-1">
+            <Star className="w-3 h-3 text-amber-400 fill-amber-400" />
+            <span className="text-[12px] font-semibold text-slate-700 tabular-nums">{mech.rating.toFixed(1)}</span>
+            <span className="text-[10px] text-slate-400">/ 5</span>
+          </div>
         )}
       </div>
 
-      {/* Stats row */}
-      <div className="grid grid-cols-3 gap-2">
-        <Stat
-          label="Today"
-          value={`${mech.todaysCompletedCount}/${mech.todaysJobCount}`}
-          sub="jobs done"
-          icon={<Briefcase className="w-3 h-3 text-slate-400" />}
-        />
-        <Stat
-          label="Weekly rev."
-          value={fmtRupee(weeklyRevenue(mech.monthlyRevenue))}
-          sub="est."
-        />
-        <Stat
-          label="Rating"
-          value={String(mech.rating)}
-          sub="/ 5"
-          icon={<Star className="w-3 h-3 text-amber-400 fill-amber-400" />}
-        />
-      </div>
-
-      {/* Skills */}
-      <div className="flex flex-wrap gap-1">
-        {mech.skills.map((s) => (
-          <span key={s} className={`text-[10px] font-medium px-1.5 py-0.5 rounded border ${SKILL_COLORS[s]}`}>
-            {s}
-          </span>
-        ))}
-      </div>
-
-      {/* Hours */}
-      <p className="text-[11px] text-slate-400">
-        {mech.workingHours.days.join(", ")} · {mech.workingHours.start}–{mech.workingHours.end}
-      </p>
-    </div>
-  );
-}
-
-function Stat({ label, value, sub, icon }: { label: string; value: string; sub: string; icon?: React.ReactNode }) {
-  return (
-    <div className="bg-slate-50 rounded-md px-2.5 py-2">
-      <p className="text-[10px] text-slate-400 font-medium">{label}</p>
-      <div className="flex items-center gap-1 mt-0.5">
-        {icon}
-        <p className="text-sm font-semibold text-slate-800 tabular-nums">{value}</p>
-      </div>
-      <p className="text-[10px] text-slate-400">{sub}</p>
+      {skills.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {skills.map((s) => (
+            <span key={s} className={`text-[10px] font-medium px-1.5 py-0.5 rounded border ${SKILL_COLORS[s] ?? "text-slate-600 bg-slate-50 border-slate-200"}`}>
+              {s}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -217,7 +121,7 @@ const BLANK = {
   payoutConfigType: "PERCENT_OF_ITEM", salaryAmount: "", payoutRate: "",
 };
 
-function AddMechanicModal({ onClose, onCreated }: { onClose: () => void; onCreated: (m: { id: string; name: string }) => void }) {
+function AddMechanicModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const [form, setForm] = useState(BLANK);
   const [saving, setSaving] = useState(false);
   const [credentials, setCredentials] = useState<{ email: string; password: string } | null>(null);
@@ -243,16 +147,16 @@ function AddMechanicModal({ onClose, onCreated }: { onClose: () => void; onCreat
     setSaving(false);
     if (res.ok) {
       const created = await res.json();
-      onCreated(created);
       if (created.defaultPassword && created.email) {
         setCredentials({ email: created.email, password: created.defaultPassword });
+        onCreated();
       } else if (created.authError && created.email) {
-        // Mechanic was created in DB but Supabase account creation failed.
-        // Show a warning — admin can use "Send login email" from profile page.
         toast.warning(`${created.name} added, but login account could not be created: ${created.authError}. Use "Send login email" on their profile page.`, { duration: 8000 });
+        onCreated();
         onClose();
       } else {
         toast.success(`${created.name} added`);
+        onCreated();
         onClose();
       }
     } else {
@@ -410,69 +314,51 @@ function CredRow({ label, value }: { label: string; value: string }) {
 // ── Page ──────────────────────────────────────────────────────────
 
 function MechanicsPageInner() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const isMock = searchParams.get("mock") === "true";
-
-  const [dbMechanics, setDbMechanics] = useState<Mechanic[]>([]);
-  const [loading, setLoading] = useState(!isMock);
+  const [mechanics, setMechanics] = useState<DbMechanic[]>([]);
+  const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<MechanicStatus | "all">("all");
-  const [skillFilters, setSkillFilters] = useState<Skill[]>([]);
+  const [availFilter, setAvailFilter] = useState<"all" | "available" | "unavailable">("all");
+  const [skillFilters, setSkillFilters] = useState<string[]>([]);
   const [showAdd, setShowAdd] = useState(false);
 
-  useEffect(() => {
-    if (isMock) { setLoading(false); return; }
+  function load() {
+    setLoading(true);
     fetch("/api/mechanics")
       .then((r) => r.ok ? r.json() : Promise.reject(r))
-      .then((data: DbMechanic[]) => setDbMechanics(data.map(dbToMechanic)))
-      .catch(() => toast.error("Failed to load mechanics from DB"))
+      .then((data: DbMechanic[]) => setMechanics(data))
+      .catch(() => toast.error("Failed to load mechanics"))
       .finally(() => setLoading(false));
-  }, [isMock]);
+  }
 
-  const mechanics = isMock ? mockMechanics : dbMechanics;
+  useEffect(() => { load(); }, []);
 
-  function toggleSkill(skill: Skill) {
+  function toggleSkill(skill: string) {
     setSkillFilters((prev) =>
       prev.includes(skill) ? prev.filter((s) => s !== skill) : [...prev, skill]
     );
   }
 
+  const allSkills = Array.from(new Set(mechanics.flatMap((m) => m.skills.map((s) => s.mechanic.label)))).sort();
+
   const filtered = mechanics.filter((m) => {
-    const matchQuery =
-      !query ||
-      m.name.toLowerCase().includes(query.toLowerCase()) ||
-      m.phone.includes(query);
-    const matchStatus = statusFilter === "all" || m.currentStatus === statusFilter;
-    const matchSkills =
-      skillFilters.length === 0 ||
-      skillFilters.every((s) => m.skills.includes(s));
-    return matchQuery && matchStatus && matchSkills;
+    const phone = m.phone ?? "";
+    const matchQuery = !query || m.name.toLowerCase().includes(query.toLowerCase()) || phone.includes(query);
+    const matchAvail = availFilter === "all" || (availFilter === "available" ? m.isAvailable : !m.isAvailable);
+    const mechSkills = m.skills.map((s) => s.mechanic.label);
+    const matchSkills = skillFilters.length === 0 || skillFilters.every((s) => mechSkills.includes(s));
+    return matchQuery && matchAvail && matchSkills;
   });
 
-  const freeCnt = mechanics.filter((m) => m.currentStatus === "free").length;
-  const busyCnt = mechanics.filter((m) => m.currentStatus === "on_job" || m.currentStatus === "on_the_way").length;
+  const freeCnt = mechanics.filter((m) => m.isAvailable).length;
 
   return (
     <div className="p-4">
-      {/* Mock mode banner */}
-      <div className={`mb-3 flex items-center gap-2 text-[11px] font-medium px-3 py-2 rounded-lg border ${isMock ? "bg-amber-50 border-amber-200 text-amber-700" : "bg-green-50 border-green-200 text-green-700"}`}>
-        <FlaskConical className="w-3.5 h-3.5 shrink-0" />
-        {isMock ? "Showing mock / sample data." : "Showing live database data."}
-        <Link
-          href={isMock ? "/mechanics" : "/mechanics?mock=true"}
-          className="ml-auto underline underline-offset-2 hover:opacity-80"
-        >
-          Switch to {isMock ? "live data" : "mock data"}
-        </Link>
-      </div>
-
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div>
           <h1 className="text-base font-semibold text-slate-800">Mechanics</h1>
           <p className="text-[11px] text-slate-500">
-            {loading ? "Loading…" : `${freeCnt} free · ${busyCnt} on job · ${mechanics.length} total`}
+            {loading ? "Loading…" : `${freeCnt} available · ${mechanics.length} total`}
           </p>
         </div>
         <button
@@ -497,45 +383,40 @@ function MechanicsPageInner() {
         </div>
 
         <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value as MechanicStatus | "all")}
+          value={availFilter}
+          onChange={(e) => setAvailFilter(e.target.value as "all" | "available" | "unavailable")}
           className="h-8 px-2.5 text-sm border border-slate-200 rounded-md bg-white text-slate-700 focus:outline-none"
         >
           <option value="all">All statuses</option>
-          <option value="free">Free</option>
-          <option value="on_job">On job</option>
-          <option value="on_the_way">On the way</option>
-          <option value="break">On break</option>
-          <option value="off_duty">Off duty</option>
+          <option value="available">Available</option>
+          <option value="unavailable">Off duty</option>
         </select>
 
-        {/* Skill toggles */}
-        <div className="flex items-center gap-1 flex-wrap">
-          {ALL_SKILLS.map((skill) => {
-            const active = skillFilters.includes(skill);
-            return (
-              <button
-                key={skill}
-                onClick={() => toggleSkill(skill)}
-                className={`h-8 px-2.5 text-xs font-medium rounded-md border transition-colors ${
-                  active
-                    ? "bg-brand-navy-800 text-white border-brand-navy-800"
-                    : "bg-white text-slate-600 border-slate-200 hover:border-brand-navy-300"
-                }`}
-              >
-                {skill}
+        {allSkills.length > 0 && (
+          <div className="flex items-center gap-1 flex-wrap">
+            {allSkills.map((skill) => {
+              const active = skillFilters.includes(skill);
+              return (
+                <button
+                  key={skill}
+                  onClick={() => toggleSkill(skill)}
+                  className={`h-8 px-2.5 text-xs font-medium rounded-md border transition-colors ${
+                    active
+                      ? "bg-brand-navy-800 text-white border-brand-navy-800"
+                      : "bg-white text-slate-600 border-slate-200 hover:border-brand-navy-300"
+                  }`}
+                >
+                  {skill}
+                </button>
+              );
+            })}
+            {skillFilters.length > 0 && (
+              <button onClick={() => setSkillFilters([])} className="h-8 px-2 text-[11px] text-slate-400 hover:text-slate-600">
+                Clear
               </button>
-            );
-          })}
-          {skillFilters.length > 0 && (
-            <button
-              onClick={() => setSkillFilters([])}
-              className="h-8 px-2 text-[11px] text-slate-400 hover:text-slate-600"
-            >
-              Clear
-            </button>
-          )}
-        </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Cards */}
@@ -550,15 +431,15 @@ function MechanicsPageInner() {
       ) : (
         <EmptyState
           icon={UserCog}
-          title={mechanics.length === 0 ? "No mechanics in database yet" : "No mechanics match your filters"}
-          description={mechanics.length === 0 ? "Add your first mechanic using the button above." : "Try adjusting your search, status, or skill filters."}
+          title={mechanics.length === 0 ? "No mechanics yet" : "No mechanics match your filters"}
+          description={mechanics.length === 0 ? "Add your first mechanic using the button above." : "Try adjusting your search or filters."}
         />
       )}
 
       {showAdd && (
         <AddMechanicModal
           onClose={() => setShowAdd(false)}
-          onCreated={(m) => window.open(`/mechanics/${m.id}`, "_blank")}
+          onCreated={() => { setShowAdd(false); load(); }}
         />
       )}
     </div>

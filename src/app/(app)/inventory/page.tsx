@@ -1,16 +1,26 @@
 "use client";
 
-import { useState, useRef, useEffect, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
-import Link from "next/link";
+import { useState, useRef, useEffect } from "react";
 import {
   Package, AlertTriangle, TrendingDown, Plus, Upload,
   Search, X, Check, FileText, Trash2,
   ShoppingCart, Eye, History, ArrowUp, ArrowDown,
-  Tag, MessageSquare, ChevronRight, FlaskConical,
+  Tag, MessageSquare, ChevronRight,
 } from "lucide-react";
-import { inventoryItems as mockInventoryItems, purchaseOrders as mockPurchaseOrders, type InventoryItem, type PurchaseOrderItem } from "@/lib/mock-data/inventory";
 import { toast } from "sonner";
+
+type InventoryItem = {
+  id: string; name: string; category: string; unit: string;
+  currentStock: number; minStock: number; unitCost: number;
+  garageId: string; lastUpdated: string;
+};
+
+type PurchaseOrderItem = { itemId: string; itemName: string; qty: number; unitPrice: number };
+
+type DisplayPurchaseOrder = {
+  id: string; vendor: string; hasBill: boolean; date: string;
+  addedBy: string; notes: string | null; total: number; items: PurchaseOrderItem[];
+};
 import { cn } from "@/lib/utils";
 
 const TODAY = new Date().toISOString().slice(0, 10);
@@ -34,6 +44,26 @@ function dbToInventoryItem(i: DbInventoryItem): InventoryItem {
     unitCost: Number(i.unitPrice),
     garageId: i.garageId,
     lastUpdated: i.updatedAt.slice(0, 10),
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function dbPOToDisplay(po: any): DisplayPurchaseOrder {
+  return {
+    id: po.id,
+    vendor: po.vendorName,
+    hasBill: !!po.billFileUrl,
+    date: (po.billDate ?? po.createdAt).slice(0, 10),
+    addedBy: "—",
+    notes: po.notes ?? null,
+    total: po.totalAmount ? Number(po.totalAmount)
+      : (po.items ?? []).reduce((s: number, i: any) => s + Number(i.total ?? 0), 0),
+    items: (po.items ?? []).map((i: any) => ({
+      itemId: i.inventoryItemId,
+      itemName: i.inventoryItem?.name ?? i.inventoryItemId,
+      qty: Number(i.quantity),
+      unitPrice: Number(i.unitPrice),
+    })),
   };
 }
 
@@ -584,28 +614,28 @@ function AddPurchaseDrawer({
 // ── Main page ─────────────────────────────────────────────────────
 
 function InventoryPageInner() {
-  const searchParams = useSearchParams();
-  const isMock = searchParams.get("mock") === "true";
-
   const [tab, setTab] = useState<"stock" | "purchases">("stock");
   const [query, setQuery] = useState("");
   const [catFilter, setCatFilter] = useState("All");
   const [stockFilter, setStockFilter] = useState<StockFilter>("all");
   const [showDrawer, setShowDrawer] = useState(false);
-  const [dbLoading, setDbLoading] = useState(!isMock);
+  const [dbLoading, setDbLoading] = useState(true);
 
-  // Local stock state (editable; seeded from mock or DB)
-  const [stock, setStock] = useState<InventoryItem[]>(isMock ? mockInventoryItems : []);
-  const [orders, setOrders] = useState(isMock ? mockPurchaseOrders : []);
+  const [stock, setStock] = useState<InventoryItem[]>([]);
+  const [orders, setOrders] = useState<DisplayPurchaseOrder[]>([]);
 
   useEffect(() => {
-    if (isMock) { setDbLoading(false); return; }
-    fetch("/api/inventory")
-      .then((r) => r.ok ? r.json() : Promise.reject(r))
-      .then((data: DbInventoryItem[]) => setStock(data.map(dbToInventoryItem)))
-      .catch(() => toast.error("Failed to load inventory from DB"))
+    Promise.all([
+      fetch("/api/inventory").then((r) => r.ok ? r.json() : Promise.reject(r)),
+      fetch("/api/purchase-orders").then((r) => r.ok ? r.json() : []),
+    ])
+      .then(([inv, pos]: [DbInventoryItem[], any[]]) => {
+        setStock(inv.map(dbToInventoryItem));
+        setOrders(pos.map(dbPOToDisplay));
+      })
+      .catch(() => toast.error("Failed to load inventory"))
       .finally(() => setDbLoading(false));
-  }, [isMock]);
+  }, []);
   const [openItem, setOpenItem] = useState<InventoryItem | null>(null);
   const [allAudits, setAllAudits] = useState<AuditEntry[]>(SEED_AUDITS);
 
@@ -622,50 +652,59 @@ function InventoryPageInner() {
   });
 
   function handleItemUpdate(itemId: string, type: AuditType, oldVal: number, newVal: number, comment: string, hasFile: boolean, fileName?: string) {
-    // Update stock or price
+    // Optimistically update local state
     setStock((s) => s.map((i) => {
       if (i.id !== itemId) return i;
       return type === "price_changed"
         ? { ...i, unitCost: newVal, lastUpdated: TODAY }
         : { ...i, currentStock: newVal, lastUpdated: TODAY };
     }));
-    // Add audit entry
     const entry: AuditEntry = {
-      id: `a${Date.now()}`,
-      itemId,
-      type,
-      oldValue: oldVal,
-      newValue: newVal,
-      comment,
-      hasFile,
-      fileName,
-      by: "Rohan M.",
-      timestamp: new Date().toISOString(),
+      id: `a${Date.now()}`, itemId, type,
+      oldValue: oldVal, newValue: newVal, comment, hasFile, fileName,
+      by: "You", timestamp: new Date().toISOString(),
     };
     setAllAudits((a) => [entry, ...a]);
-    // Keep drawer open with updated item
     setOpenItem((prev) => {
       if (!prev || prev.id !== itemId) return prev;
       return type === "price_changed"
         ? { ...prev, unitCost: newVal, lastUpdated: TODAY }
         : { ...prev, currentStock: newVal, lastUpdated: TODAY };
     });
+    // Persist to API
+    if (type === "price_changed") {
+      fetch(`/api/inventory/${itemId}/price`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ newPrice: newVal, comment }),
+      }).catch(() => toast.error("Failed to save price change"));
+    } else {
+      const delta = newVal - oldVal;
+      fetch(`/api/inventory/${itemId}/stock`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ qty: delta, comment }),
+      }).catch(() => toast.error("Failed to save stock update"));
+    }
   }
 
-  function handleSavePurchase(vendor: string, date: string, lines: DraftLine[], hasBill: boolean) {
-    const newLines: PurchaseOrderItem[] = lines.map((l, i) => ({
-      itemId: `new-${i}`,
+  async function handleSavePurchase(vendor: string, date: string, lines: DraftLine[], hasBill: boolean) {
+    const poItems: PurchaseOrderItem[] = lines.map((l, i) => ({
+      itemId: stock.find((s) => s.name === l.itemName)?.id ?? `new-${i}`,
       itemName: l.itemName,
       qty: parseFloat(l.qty) || 0,
       unitPrice: parseFloat(l.unitPrice) || 0,
     }));
-    const total = newLines.reduce((s, l) => s + l.qty * l.unitPrice, 0);
+    const total = poItems.reduce((s, l) => s + l.qty * l.unitPrice, 0);
 
-    // Add to orders
-    const newOrder = { id: `po${orders.length + 1}`, vendor, date, hasBill, items: newLines, total, garageId: "g1", addedBy: "Rohan M." };
-    setOrders((o) => [newOrder, ...o]);
+    // Optimistically add to local orders list
+    const localPO: DisplayPurchaseOrder = {
+      id: `po-local-${Date.now()}`, vendor, hasBill, date,
+      addedBy: "You", notes: null, total, items: poItems,
+    };
+    setOrders((o) => [localPO, ...o]);
 
-    // Update stock for matching items
+    // Update stock locally
     setStock((s) =>
       s.map((item) => {
         const line = lines.find((l) => l.itemName === item.name);
@@ -676,6 +715,30 @@ function InventoryPageInner() {
 
     setShowDrawer(false);
     toast.success(`Purchase saved · ${fmtRupee(total)} · Stock updated`);
+
+    // Persist PO header to API
+    try {
+      const res = await fetch("/api/purchase-orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ vendorName: vendor, billDate: date, totalAmount: total }),
+      });
+      if (res.ok) {
+        const created = await res.json();
+        setOrders((o) => o.map((po) => po.id === localPO.id ? { ...localPO, id: created.id } : po));
+        // Update stock via API for items that exist in DB
+        for (const line of lines) {
+          const dbItem = stock.find((s) => s.name === line.itemName);
+          if (dbItem && parseFloat(line.qty) > 0) {
+            fetch(`/api/inventory/${dbItem.id}/stock`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ qty: parseFloat(line.qty), comment: `Purchase from ${vendor}` }),
+            }).catch(() => {});
+          }
+        }
+      }
+    } catch { /* best-effort */ }
   }
 
   function stockColor(item: InventoryItem) {
@@ -686,18 +749,6 @@ function InventoryPageInner() {
 
   return (
     <div className="p-4 max-w-5xl">
-      {/* Mock mode banner */}
-      <div className={`mb-3 flex items-center gap-2 text-[11px] font-medium px-3 py-2 rounded-lg border ${isMock ? "bg-amber-50 border-amber-200 text-amber-700" : "bg-green-50 border-green-200 text-green-700"}`}>
-        <FlaskConical className="w-3.5 h-3.5 shrink-0" />
-        {isMock ? "Showing mock / sample data." : dbLoading ? "Loading live database data…" : "Showing live database data."}
-        <Link
-          href={isMock ? "/inventory" : "/inventory?mock=true"}
-          className="ml-auto underline underline-offset-2 hover:opacity-80"
-        >
-          Switch to {isMock ? "live data" : "mock data"}
-        </Link>
-      </div>
-
       {openItem && (
         <ItemDetailDrawer
           item={openItem}
@@ -912,10 +963,4 @@ function InventoryPageInner() {
   );
 }
 
-export default function InventoryPage() {
-  return (
-    <Suspense>
-      <InventoryPageInner />
-    </Suspense>
-  );
-}
+export { InventoryPageInner as default };

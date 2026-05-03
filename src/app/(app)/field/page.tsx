@@ -1,19 +1,14 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import {
   Phone, MessageCircle, Camera, CheckCircle2, ChevronRight,
-  MapPin, Car, Wrench, Clock, Navigation, Star, FlaskConical,
+  MapPin, Car, Wrench, Clock, Navigation, Star,
 } from "lucide-react";
 import { toast } from "sonner";
-import { serviceRequests as mockSRs } from "@/lib/mock-data/serviceRequests";
-import { mechanics as mockMechanics } from "@/lib/mock-data/mechanics";
-import { customers as mockCustomers } from "@/lib/mock-data/customers";
-import { vehicles as mockVehicles } from "@/lib/mock-data/vehicles";
 
-// ── Unified display types ─────────────────────────────────────────
+// ── Display types ─────────────────────────────────────────────────
 
 type DisplayMechanic = {
   id: string;
@@ -54,68 +49,42 @@ function dbSRToDisplay(sr: DbSR): DisplaySR {
   return {
     id: sr.id,
     srNumber: sr.srNumber,
-    status: sr.status.toLowerCase().replace(/_/g, "_"),
+    status: sr.status,
     scheduledAt: sr.scheduledAt ?? undefined,
     mechanicId: sr.mechanicId ?? "",
     customerName: sr.customer?.name ?? "Customer",
     customerPhone: sr.customer?.phone ?? undefined,
-    vehicleInfo: sr.vehicle ? `${sr.vehicle.make} ${sr.vehicle.model}${sr.vehicle.registrationNumber ? " · " + sr.vehicle.registrationNumber : ""}` : undefined,
+    vehicleInfo: sr.vehicle
+      ? `${sr.vehicle.make} ${sr.vehicle.model}${sr.vehicle.registrationNumber ? " · " + sr.vehicle.registrationNumber : ""}`
+      : undefined,
     services: sr.complaint ? [sr.complaint] : [],
     location: sr.locationType ?? undefined,
     isField: sr.locationType === "FIELD" || sr.locationType === "SOCIETY",
   };
 }
 
-// Map mock SR to unified type
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function mockSRToDisplay(sr: any, custMap: Record<string, any>, vehMap: Record<string, any>): DisplaySR {
-  const cust = custMap[sr.customerId];
-  const veh  = vehMap[sr.vehicleId];
-  return {
-    id: sr.id,
-    status: sr.status,
-    scheduledAt: sr.scheduledAt,
-    mechanicId: sr.assignedMechanicId,
-    customerName: cust?.name ?? "Customer",
-    customerPhone: cust?.phone,
-    vehicleInfo: veh ? `${veh.make} ${veh.model} · ${veh.registration}` : undefined,
-    services: [...(sr.serviceItems ?? []).map((i: any) => i.name), ...(sr.addOns ?? []).filter((a: any) => a.status === "approved").map((a: any) => "+ " + a.name)],
-    location: sr.neighbourhood,
-    isField: sr.locationType === "doorstep",
-  };
-}
-
 // ── Helpers ───────────────────────────────────────────────────────
 
 const STATUS_ADVANCE: Record<string, { label: string; next: string; color: string }> = {
-  OPEN:        { label: "Confirm Job",    next: "IN_PROGRESS", color: "bg-blue-600" },
-  scheduled:   { label: "Confirm Job",    next: "confirmed",   color: "bg-blue-600" },
-  confirmed:   { label: "Head Out",       next: "on_the_way",  color: "bg-amber-600" },
-  on_the_way:  { label: "Mark Arrived",   next: "in_progress", color: "bg-amber-600" },
+  OPEN:        { label: "Start Job",      next: "IN_PROGRESS", color: "bg-blue-600" },
+  CONFIRMED:   { label: "Head Out",       next: "IN_PROGRESS", color: "bg-amber-600" },
   IN_PROGRESS: { label: "Mark Complete",  next: "READY",       color: "bg-green-600" },
-  in_progress: { label: "Mark Complete",  next: "completed",   color: "bg-green-600" },
-  READY:       { label: "Done",           next: "READY",       color: "bg-slate-400" },
-  completed:   { label: "Done",           next: "completed",   color: "bg-slate-400" },
+  WAITING_PARTS: { label: "Resume Job",   next: "IN_PROGRESS", color: "bg-amber-600" },
 };
 
 const STATUS_LABELS: Record<string, string> = {
-  OPEN: "Open", IN_PROGRESS: "In Progress", WAITING_PARTS: "Waiting Parts",
-  READY: "Ready", CLOSED: "Closed",
-  scheduled: "Scheduled", confirmed: "Confirmed", on_the_way: "On the way",
-  in_progress: "In progress", completed: "Completed", invoiced: "Invoiced",
+  OPEN: "Open", CONFIRMED: "Confirmed", IN_PROGRESS: "In Progress",
+  WAITING_PARTS: "Waiting Parts", READY: "Ready", CLOSED: "Closed", CANCELLED: "Cancelled",
 };
 
 const STATUS_COLORS: Record<string, string> = {
   OPEN: "text-slate-600 bg-slate-100",
+  CONFIRMED: "text-blue-700 bg-blue-50",
   IN_PROGRESS: "text-orange-700 bg-orange-50",
   WAITING_PARTS: "text-amber-700 bg-amber-50",
   READY: "text-green-700 bg-green-50",
   CLOSED: "text-slate-500 bg-slate-100",
-  scheduled: "text-slate-600 bg-slate-100",
-  confirmed: "text-blue-700 bg-blue-50",
-  on_the_way: "text-amber-700 bg-amber-50",
-  in_progress: "text-orange-700 bg-orange-50",
-  completed: "text-green-700 bg-green-50",
+  CANCELLED: "text-red-600 bg-red-50",
 };
 
 function fmtTime(iso?: string) {
@@ -125,48 +94,29 @@ function fmtTime(iso?: string) {
 
 // ── Page ──────────────────────────────────────────────────────────
 
-function FieldPageInner() {
-  const searchParams = useSearchParams();
-  const isMock = searchParams.get("mock") === "true";
-
-  const [dbMechanics, setDbMechanics] = useState<DisplayMechanic[]>([]);
-  const [dbSRs, setDbSRs] = useState<DisplaySR[]>([]);
-  const [loading, setLoading] = useState(!isMock);
+export default function FieldPage() {
+  const [mechanics, setMechanics] = useState<DisplayMechanic[]>([]);
+  const [allSRs, setAllSRs] = useState<DisplaySR[]>([]);
+  const [loading, setLoading] = useState(true);
 
   const [selectedMechId, setSelectedMechId] = useState<string>("");
   const [localStatuses, setLocalStatuses] = useState<Record<string, string>>({});
   const [photosUploaded, setPhotosUploaded] = useState<Record<string, number>>({});
 
-  // Build mock display data once
-  const custMap = Object.fromEntries(mockCustomers.map((c) => [c.id, c]));
-  const vehMap  = Object.fromEntries(mockVehicles.map((v) => [v.id, v]));
-  const mockMechDisplay: DisplayMechanic[] = mockMechanics.map((m) => ({
-    id: m.id, name: m.name, skills: m.skills, rating: m.rating,
-  }));
-  const mockSRDisplay: DisplaySR[] = mockSRs.map((sr) => mockSRToDisplay(sr, custMap, vehMap));
-
   useEffect(() => {
-    if (isMock) {
-      setSelectedMechId(mockMechanics[0]?.id ?? "");
-      setLoading(false);
-      return;
-    }
     Promise.all([
       fetch("/api/mechanics").then((r) => r.json()),
       fetch("/api/service-requests").then((r) => r.json()),
     ])
       .then(([mechs, srs]: [DbMechanic[], DbSR[]]) => {
         const displayMechs = mechs.map(dbMechToDisplay);
-        setDbMechanics(displayMechs);
-        setDbSRs(srs.map(dbSRToDisplay));
+        setMechanics(displayMechs);
+        setAllSRs(srs.map(dbSRToDisplay));
         if (displayMechs.length > 0) setSelectedMechId(displayMechs[0].id);
       })
       .catch(() => toast.error("Failed to load field data"))
       .finally(() => setLoading(false));
-  }, [isMock]);
-
-  const mechanics = isMock ? mockMechDisplay : dbMechanics;
-  const allSRs    = isMock ? mockSRDisplay  : dbSRs;
+  }, []);
 
   const mech   = mechanics.find((m) => m.id === selectedMechId);
   const myJobs = allSRs
@@ -177,16 +127,21 @@ function FieldPageInner() {
     return localStatuses[srId] ?? base;
   }
 
-  function advanceStatus(srId: string, current: string) {
+  async function advanceStatus(srId: string, current: string) {
     const advance = STATUS_ADVANCE[current];
     if (!advance || advance.next === current) return;
     setLocalStatuses((s) => ({ ...s, [srId]: advance.next }));
-    const msg = advance.next === "on_the_way" || advance.next === "IN_PROGRESS"
-      ? "Job started."
-      : advance.next === "completed" || advance.next === "READY"
-      ? "Job marked complete."
-      : "Status updated.";
-    toast.success(msg);
+    try {
+      await fetch(`/api/service-requests/${srId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: advance.next }),
+      });
+      toast.success(advance.next === "READY" ? "Job marked complete." : "Status updated.");
+    } catch {
+      toast.error("Failed to update status");
+      setLocalStatuses((s) => ({ ...s, [srId]: current }));
+    }
   }
 
   function uploadPhoto(srId: string) {
@@ -196,25 +151,13 @@ function FieldPageInner() {
 
   const completedToday = myJobs.filter((j) => {
     const s = getStatus(j.id, j.status);
-    return s === "completed" || s === "READY" || s === "CLOSED";
+    return s === "READY" || s === "CLOSED";
   }).length;
 
   const today = new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" });
 
   return (
     <div className="max-w-md mx-auto p-4 pb-24">
-      {/* Mock mode banner */}
-      <div className={`mb-3 flex items-center gap-2 text-[11px] font-medium px-3 py-2 rounded-lg border ${isMock ? "bg-amber-50 border-amber-200 text-amber-700" : "bg-green-50 border-green-200 text-green-700"}`}>
-        <FlaskConical className="w-3.5 h-3.5 shrink-0" />
-        {isMock ? "Showing mock / sample data." : "Showing live database data."}
-        <Link
-          href={isMock ? "/field" : "/field?mock=true"}
-          className="ml-auto underline underline-offset-2 hover:opacity-80"
-        >
-          Switch to {isMock ? "live data" : "mock data"}
-        </Link>
-      </div>
-
       {/* Header */}
       <div className="mb-4">
         <h1 className="text-base font-semibold text-slate-800">Field View</h1>
@@ -226,7 +169,8 @@ function FieldPageInner() {
       ) : mechanics.length === 0 ? (
         <div className="text-center py-12 text-slate-400">
           <Wrench className="w-8 h-8 mx-auto mb-2 opacity-30" />
-          <p className="text-sm">No mechanics found in database.</p>
+          <p className="text-sm">No mechanics found.</p>
+          <Link href="/mechanics/new" className="text-xs text-blue-600 underline mt-1 inline-block">Add a mechanic</Link>
         </div>
       ) : (
         <>
@@ -280,14 +224,14 @@ function FieldPageInner() {
           {myJobs.length === 0 ? (
             <div className="text-center py-12 text-slate-400">
               <Wrench className="w-8 h-8 mx-auto mb-2 opacity-30" />
-              <p className="text-sm">No jobs assigned to this mechanic.</p>
+              <p className="text-sm">No jobs assigned to this mechanic today.</p>
             </div>
           ) : (
             <div className="space-y-3">
               {myJobs.map((sr, idx) => {
                 const status = getStatus(sr.id, sr.status);
                 const advance = STATUS_ADVANCE[status];
-                const done = status === "completed" || status === "READY" || status === "CLOSED";
+                const done = status === "READY" || status === "CLOSED";
                 const photos = photosUploaded[sr.id] ?? 0;
 
                 return (
@@ -338,7 +282,7 @@ function FieldPageInner() {
                       {sr.services.length > 0 && (
                         <div className="flex flex-wrap gap-1 mb-3">
                           {sr.services.map((s, i) => (
-                            <span key={i} className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${s.startsWith("+") ? "text-green-700 bg-green-50 border border-green-200" : "text-slate-600 bg-slate-100"}`}>
+                            <span key={i} className="text-[10px] font-medium px-2 py-0.5 rounded-full text-slate-600 bg-slate-100">
                               {s}
                             </span>
                           ))}
@@ -347,19 +291,23 @@ function FieldPageInner() {
 
                       <div className="flex items-center gap-2 flex-wrap">
                         {sr.customerPhone && (
-                          <button
-                            onClick={() => toast.info(`Calling ${sr.customerName}`)}
+                          <a
+                            href={`tel:${sr.customerPhone}`}
                             className="flex items-center gap-1.5 text-[11px] font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 px-2.5 py-1.5 rounded-lg transition-colors"
                           >
                             <Phone className="w-3.5 h-3.5" /> Call
-                          </button>
+                          </a>
                         )}
-                        <button
-                          onClick={() => toast.success("WhatsApp opened")}
-                          className="flex items-center gap-1.5 text-[11px] font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 px-2.5 py-1.5 rounded-lg transition-colors"
-                        >
-                          <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
-                        </button>
+                        {sr.customerPhone && (
+                          <a
+                            href={`https://wa.me/91${sr.customerPhone.replace(/\D/g, "")}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1.5 text-[11px] font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 px-2.5 py-1.5 rounded-lg transition-colors"
+                          >
+                            <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
+                          </a>
+                        )}
                         <button
                           onClick={() => uploadPhoto(sr.id)}
                           className="flex items-center gap-1.5 text-[11px] font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 px-2.5 py-1.5 rounded-lg transition-colors"
@@ -392,13 +340,5 @@ function FieldPageInner() {
         </>
       )}
     </div>
-  );
-}
-
-export default function FieldPage() {
-  return (
-    <Suspense>
-      <FieldPageInner />
-    </Suspense>
   );
 }
