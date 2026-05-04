@@ -7,7 +7,10 @@ import { ServiceRequestService } from "@/lib/services/service-request.service";
 
 const srService = new ServiceRequestService();
 
-export const POST = withAuthParams<{ id: string }>(async (_req, { profile }, { id }) => {
-  const invoice = await srService.closeAndInvoice(id, profile.id, profile.name);
+export const POST = withAuthParams<{ id: string }>(async (req, { profile }, { id }) => {
+  const body = await req.json().catch(() => ({})) as { discountAmount?: number };
+  const invoice = await srService.closeAndInvoice(id, profile.id, profile.name, {
+    discountAmount: body.discountAmount ? Number(body.discountAmount) : 0,
+  });
   return NextResponse.json(invoice, { status: 201 });
 });

@@ -409,7 +409,7 @@ function JobsTab({ mechanic, available, onToggleAvailability, clockingIn }: {
           <div key={sr.id} className={`bg-white border rounded-xl overflow-hidden ${done ? "border-green-200 opacity-80" : "border-slate-200 shadow-sm"}`}>
             {/* Tap header to open SR */}
             <div className={`px-4 py-2.5 flex items-center justify-between cursor-pointer active:opacity-70 ${done ? "bg-green-50" : "bg-slate-50"} border-b border-slate-100`}
-              onClick={() => window.open(`/services/${sr.id}`, "_blank")}>
+              onClick={() => window.open(`/field/${sr.id}`, "_blank")}>
               <div className="flex items-center gap-2 min-w-0">
                 <span className="text-[11px] font-bold text-slate-400 shrink-0">#{idx + 1}</span>
                 <span className="text-[11px] text-slate-400 shrink-0">{sr.srNumber}</span>
@@ -522,7 +522,7 @@ function JobsTab({ mechanic, available, onToggleAvailability, clockingIn }: {
             {pastSRs.map(sr => (
               <div key={sr.id}
                 className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-slate-50 active:opacity-70"
-                onClick={() => window.open(`/services/${sr.id}`, "_blank")}>
+                onClick={() => window.open(`/field/${sr.id}`, "_blank")}>
                 <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-bold text-slate-500 shrink-0">
                   {sr.customer ? initials(sr.customer.name) : "?"}
                 </div>

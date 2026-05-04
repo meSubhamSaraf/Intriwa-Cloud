@@ -41,6 +41,7 @@ export const POST = withAuth(async (req, { garageId }) => {
       description:   body.description,
       severity:      body.severity      || "ROUTINE",
       estimatedCost: body.estimatedCost ? Number(body.estimatedCost) : null,
+      followUpAt:    body.followUpAt    ? new Date(body.followUpAt) : null,
     },
     include: {
       customer: { select: { id: true, name: true, phone: true } },

@@ -9,35 +9,52 @@ export const GET = withAuth(async (_req, { garageId }) => {
   const now = new Date();
   const horizon = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000); // 14 days out
 
-  // Leads with followUpAt set and not yet closed/lost
-  const leadsWithDue = await prisma.lead.findMany({
-    where: {
-      garageId,
-      followUpAt: { not: null, lte: horizon },
-      status: { notIn: ["LOST", "CONVERTED"] },
-    },
-    select: {
-      id: true, name: true, phone: true, vehicleInfo: true,
-      followUpAt: true, status: true, assignedOpsId: true, notes: true,
-    },
-    orderBy: { followUpAt: "asc" },
-  });
-
-  // FollowUp records with scheduledAt in window (not yet completed)
-  const scheduledFollowUps = await prisma.followUp.findMany({
-    where: {
-      lead: { garageId },
-      completedAt: null,
-      scheduledAt: { not: null, lte: horizon },
-    },
-    include: {
-      lead: {
-        select: { id: true, name: true, phone: true, vehicleInfo: true, assignedOpsId: true },
+  const [leadsWithDue, scheduledFollowUps, observationsWithFollowUp] = await Promise.all([
+    // Leads with followUpAt set and not yet closed/lost
+    prisma.lead.findMany({
+      where: {
+        garageId,
+        followUpAt: { not: null, lte: horizon },
+        status: { notIn: ["LOST", "CONVERTED"] },
       },
-    },
-    orderBy: { scheduledAt: "asc" },
-    take: 100,
-  });
+      select: {
+        id: true, name: true, phone: true, vehicleInfo: true,
+        followUpAt: true, status: true, assignedOpsId: true, notes: true,
+      },
+      orderBy: { followUpAt: "asc" },
+    }),
+
+    // FollowUp records with scheduledAt in window (not yet completed)
+    prisma.followUp.findMany({
+      where: {
+        lead: { garageId },
+        completedAt: null,
+        scheduledAt: { not: null, lte: horizon },
+      },
+      include: {
+        lead: {
+          select: { id: true, name: true, phone: true, vehicleInfo: true, assignedOpsId: true },
+        },
+      },
+      orderBy: { scheduledAt: "asc" },
+      take: 100,
+    }),
+
+    // Observations with a followUpAt set and not yet resolved
+    prisma.customerObservation.findMany({
+      where: {
+        garageId,
+        followUpAt: { not: null, lte: horizon },
+        status: { notIn: ["CONVERTED", "DISMISSED"] },
+      },
+      include: {
+        customer: { select: { id: true, name: true, phone: true } },
+        vehicle:  { select: { make: true, model: true } },
+      },
+      orderBy: { followUpAt: "asc" },
+      take: 100,
+    }),
+  ]);
 
   const result = [
     ...leadsWithDue.map((l) => ({
@@ -68,7 +85,20 @@ export const GET = withAuth(async (_req, { garageId }) => {
         status: "pending" as const,
         assignedOpsId: f.lead.assignedOpsId ?? null,
       })),
-  ];
+    ...observationsWithFollowUp.map((o) => ({
+      id: `obs-${o.id}`,
+      type: "observation_followup" as const,
+      leadId: null as string | null,
+      customerId: o.customer.id,
+      customerName: o.customer.name,
+      phone: o.customer.phone,
+      vehicleLabel: o.vehicle ? `${o.vehicle.make} ${o.vehicle.model}` : null,
+      reason: o.description,
+      dueDate: (o.followUpAt as Date).toISOString(),
+      status: "pending" as const,
+      assignedOpsId: null as string | null,
+    })),
+  ].sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
 
   return NextResponse.json(result);
 });

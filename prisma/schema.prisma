@@ -762,6 +762,7 @@ model CustomerObservation {
   status        ObservationStatus   @default(NEW)
   convertedSrId String?             // SR that was booked as a result
   followUpNote  String?
+  followUpAt    DateTime?
   createdAt     DateTime            @default(now())
   updatedAt     DateTime            @updatedAt
 

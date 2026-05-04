@@ -125,7 +125,7 @@ export class ServiceRequestService {
   }
 
   // Raises an invoice, deducts inventory, and closes the SR
-  async closeAndInvoice(srId: string, actorId?: string, actorName?: string) {
+  async closeAndInvoice(srId: string, actorId?: string, actorName?: string, opts?: { discountAmount?: number }) {
     const sr = await prisma.serviceRequest.findUniqueOrThrow({
       where: { id: srId },
       include: {
@@ -151,6 +151,7 @@ export class ServiceRequestService {
       return s + price * quantity;
     }, 0);
     const subtotal = labourTotal + partsTotal + addonTotal;
+    const discountAmount = Math.max(0, Math.min(opts?.discountAmount ?? 0, subtotal));
 
     const invoice = await prisma.$transaction(async (tx) => {
       const inv = await tx.invoice.create({
@@ -159,7 +160,8 @@ export class ServiceRequestService {
           serviceRequestId: srId,
           invoiceNumber,
           subtotal,
-          total: subtotal,
+          discountAmount,
+          total: subtotal - discountAmount,
           items: {
             create: [
               ...sr.items.map((i) => ({
@@ -200,7 +202,7 @@ export class ServiceRequestService {
           type: "INVOICE_RAISED",
           actorId,
           actorName,
-          body: `Invoice ${invoiceNumber} raised for ₹${subtotal.toFixed(2)}`,
+          body: `Invoice ${invoiceNumber} raised for ₹${(subtotal - discountAmount).toFixed(2)}${discountAmount > 0 ? ` (discount ₹${discountAmount.toFixed(2)})` : ""}`,
         },
       });
 

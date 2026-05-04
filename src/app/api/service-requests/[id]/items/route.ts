@@ -24,10 +24,24 @@ export const POST = withAuthParams<{ id: string }>(async (req, _ctx, { id }) => 
 });
 
 export const PATCH = withAuthParams<{ id: string }>(async (req, _ctx, { id: _srId }) => {
-  const { itemId, assignedMechanicId } = await req.json();
+  const body = await req.json();
+  const { itemId } = body;
+
+  if (body.unitPrice != null) {
+    const existing = await prisma.serviceItem.findUnique({ where: { id: itemId }, select: { quantity: true } });
+    if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    const newPrice = Math.max(0, Number(body.unitPrice));
+    const item = await prisma.serviceItem.update({
+      where: { id: itemId },
+      data: { unitPrice: newPrice, total: newPrice * existing.quantity },
+      include: { assignedMechanic: { select: { id: true, name: true } } },
+    });
+    return NextResponse.json(item);
+  }
+
   const item = await prisma.serviceItem.update({
     where: { id: itemId },
-    data:  { assignedMechanicId: assignedMechanicId || null },
+    data:  { assignedMechanicId: body.assignedMechanicId || null },
     include: { assignedMechanic: { select: { id: true, name: true } } },
   });
   return NextResponse.json(item);

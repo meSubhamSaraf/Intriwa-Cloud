@@ -24,6 +24,7 @@ type SRItem = {
   id: string;
   description: string;
   unitPrice: number | null;
+  total: number;
   quantity: number;
   assignedMechanicId: string | null;
   assignedMechanic?: { id: string; name: string } | null;
@@ -192,7 +193,15 @@ export default function ServiceRequestDetailPage() {
   const [obsDesc, setObsDesc] = useState("");
   const [obsSeverity, setObsSeverity] = useState<"URGENT" | "ROUTINE" | "COSMETIC">("ROUTINE");
   const [obsEstCost, setObsEstCost] = useState("");
+  const [obsFollowUpAt, setObsFollowUpAt] = useState("");
   const [savingObs, setSavingObs] = useState(false);
+
+  // Item price editing
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [editingPrice, setEditingPrice] = useState("");
+
+  // Pre-invoice discount
+  const [invoiceDiscount, setInvoiceDiscount] = useState("");
 
   useEffect(() => {
     // Role check is part of the same Promise.all so loading blocks render
@@ -329,6 +338,29 @@ export default function ServiceRequestDetailPage() {
     }
   }
 
+  async function updateItemPrice(itemId: string, price: string) {
+    const unitPrice = parseFloat(price);
+    if (isNaN(unitPrice) || unitPrice < 0) return;
+    const res = await fetch(`/api/service-requests/${id}/items`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ itemId, unitPrice }),
+    });
+    if (res.ok) {
+      const updated = await res.json();
+      setSr(prev => prev ? {
+        ...prev,
+        items: prev.items.map(i => i.id === itemId
+          ? { ...i, unitPrice: Number(updated.unitPrice), total: Number(updated.total) }
+          : i),
+      } : prev);
+      setEditingItemId(null);
+      toast.success("Price updated");
+    } else {
+      toast.error("Failed to update price");
+    }
+  }
+
   async function submitObservation(e: React.FormEvent) {
     e.preventDefault();
     if (!sr?.customer) return;
@@ -346,14 +378,16 @@ export default function ServiceRequestDetailPage() {
           description:  obsDesc,
           severity:     obsSeverity,
           estimatedCost: obsEstCost ? Number(obsEstCost) : null,
+          followUpAt:   obsFollowUpAt || null,
         }),
       });
       if (res.ok) {
-        toast.success("Observation flagged — ops team will follow up with the customer");
+        toast.success(obsFollowUpAt ? "Observation flagged — follow-up reminder set" : "Observation flagged — ops team will follow up with the customer");
         setShowObsForm(false);
         setObsDesc("");
         setObsSeverity("ROUTINE");
         setObsEstCost("");
+        setObsFollowUpAt("");
       } else {
         toast.error("Failed to save observation");
       }
@@ -365,7 +399,12 @@ export default function ServiceRequestDetailPage() {
   async function raiseInvoice() {
     setRaisingInvoice(true);
     try {
-      const res = await fetch(`/api/service-requests/${id}/invoice`, { method: "POST" });
+      const discountAmount = invoiceDiscount ? Math.max(0, Number(invoiceDiscount)) : 0;
+      const res = await fetch(`/api/service-requests/${id}/invoice`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ discountAmount }),
+      });
       if (!res.ok) { const e = await res.json().catch(() => ({})); toast.error(e.error ?? "Failed to raise invoice"); return; }
       const inv = await res.json();
       setRaisedInvoiceId(inv.id);
@@ -390,9 +429,15 @@ export default function ServiceRequestDetailPage() {
   const displayStatus = STATUS_DISPLAY[sr.status] ?? sr.status.toLowerCase();
   const pendingAddons = addons.filter(a => a.status === "PENDING");
   const closingBlocked = next === "CLOSED" && pendingAddons.length > 0;
-  const itemsTotal = sr.items.reduce((s, i) => s + Number(i.unitPrice ?? 0) * i.quantity, 0);
+  const itemsTotal = sr.items.reduce((s, i) => s + Number(i.total ?? 0), 0);
   const invTotal   = (sr.inventoryUsages ?? []).reduce((s, u) => s + Number(u.total), 0);
-  const total = itemsTotal + invTotal;
+  const addonTotal = addons
+    .filter(a => a.status === "APPROVED")
+    .reduce((s, a) => {
+      const { sellingPrice, quantity = 1 } = parseAddonNotes(a.notes);
+      return s + (sellingPrice != null ? sellingPrice : Number(a.estimatedCost)) * quantity;
+    }, 0);
+  const total = itemsTotal + invTotal + addonTotal;
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -633,11 +678,28 @@ export default function ServiceRequestDetailPage() {
               </>
             )}
             {sr.status === "READY" && !raisedInvoiceId && (
-              <button onClick={raiseInvoice} disabled={raisingInvoice || closingBlocked}
-                className="mt-3 w-full flex items-center justify-center gap-1.5 text-sm font-medium bg-green-700 text-white hover:bg-green-800 py-2 rounded-md transition-colors disabled:opacity-60">
-                <Receipt className="w-4 h-4" />
-                {raisingInvoice ? "Raising invoice…" : "Raise & Send Invoice"}
-              </button>
+              <>
+                <div className="mt-3 flex items-center gap-2">
+                  <label className="text-[11px] text-slate-500 font-medium shrink-0">Discount (₹)</label>
+                  <input
+                    type="number" min={0} max={total}
+                    value={invoiceDiscount}
+                    onChange={e => setInvoiceDiscount(e.target.value)}
+                    placeholder="0"
+                    className="flex-1 h-8 px-2.5 text-sm border border-slate-200 rounded-md focus:outline-none focus:border-brand-navy-400"
+                  />
+                  {invoiceDiscount && Number(invoiceDiscount) > 0 && total > 0 && (
+                    <span className="text-[11px] text-green-700 font-medium shrink-0">
+                      → ₹{Math.max(0, total - Number(invoiceDiscount)).toLocaleString("en-IN")}
+                    </span>
+                  )}
+                </div>
+                <button onClick={raiseInvoice} disabled={raisingInvoice || closingBlocked}
+                  className="mt-2 w-full flex items-center justify-center gap-1.5 text-sm font-medium bg-green-700 text-white hover:bg-green-800 py-2 rounded-md transition-colors disabled:opacity-60">
+                  <Receipt className="w-4 h-4" />
+                  {raisingInvoice ? "Raising invoice…" : "Raise & Send Invoice"}
+                </button>
+              </>
             )}
             {raisedInvoiceId && (
               <Link href={`/invoices/${raisedInvoiceId}`}
@@ -696,11 +758,32 @@ export default function ServiceRequestDetailPage() {
                         </select>
                       )}
                     </div>
-                    <span className="text-[12px] text-slate-500 tabular-nums">×{item.quantity}</span>
-                    {item.unitPrice != null && (
-                      <span className="text-[12px] font-medium text-slate-700 tabular-nums whitespace-nowrap">
-                        ₹{(Number(item.unitPrice) * item.quantity).toLocaleString("en-IN")}
-                      </span>
+                    <span className="text-[12px] text-slate-500 tabular-nums shrink-0">×{item.quantity}</span>
+                    {editingItemId === item.id ? (
+                      <div className="flex items-center gap-1 shrink-0">
+                        <span className="text-[11px] text-slate-400">₹</span>
+                        <input
+                          type="number" min={0} value={editingPrice}
+                          onChange={e => setEditingPrice(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === "Enter") updateItemPrice(item.id, editingPrice);
+                            if (e.key === "Escape") setEditingItemId(null);
+                          }}
+                          autoFocus
+                          className="w-20 h-6 px-1.5 text-xs border border-brand-navy-300 rounded focus:outline-none"
+                        />
+                        <button onClick={() => updateItemPrice(item.id, editingPrice)} className="text-[10px] text-green-700 font-semibold hover:text-green-800">Save</button>
+                        <button onClick={() => setEditingItemId(null)} className="text-[10px] text-slate-400 hover:text-slate-600"><X className="w-3 h-3" /></button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => { setEditingItemId(item.id); setEditingPrice(item.unitPrice != null ? String(Number(item.unitPrice)) : "0"); }}
+                        title="Edit unit price"
+                        className="flex items-center gap-1 text-[12px] text-slate-700 tabular-nums hover:text-brand-navy-700 font-medium whitespace-nowrap shrink-0"
+                      >
+                        {item.unitPrice != null ? `₹${Number(item.total ?? 0).toLocaleString("en-IN")}` : <span className="text-slate-400 text-[11px]">Set price</span>}
+                        <Pencil className="w-3 h-3 text-slate-300 hover:text-slate-500" />
+                      </button>
                     )}
                     <button
                       onClick={() => { loadMechanics(); setAssigningItemId(prev => prev === item.id ? null : item.id); }}
@@ -945,6 +1028,16 @@ export default function ServiceRequestDetailPage() {
                     min={0} placeholder="0"
                     className="w-full h-9 px-3 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-amber-400" />
                 </div>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1.5">Follow-up reminder (optional)</label>
+                <input
+                  type="datetime-local"
+                  value={obsFollowUpAt}
+                  onChange={e => setObsFollowUpAt(e.target.value)}
+                  className="w-full h-9 px-3 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-amber-400"
+                />
+                <p className="text-[10px] text-slate-400 mt-1">Sets a follow-up reminder in the Followups queue.</p>
               </div>
               <p className="text-[11px] text-slate-400">
                 The ops team will follow up with {sr.customer?.name ?? "the customer"}. If the observation converts to a booking, the assigned mechanic may earn an incentive.
