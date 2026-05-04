@@ -1,16 +1,11 @@
 "use client";
 
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import {
   Search, X, Users, UserPlus, Car, Wrench, UserCog,
-  ArrowRight, Clock,
+  ArrowRight,
 } from "lucide-react";
-import { customers } from "@/lib/mock-data/customers";
-import { leads } from "@/lib/mock-data/leads";
-import { vehicles } from "@/lib/mock-data/vehicles";
-import { serviceRequests } from "@/lib/mock-data/serviceRequests";
-import { mechanics } from "@/lib/mock-data/mechanics";
 
 type Result = {
   id: string;
@@ -19,6 +14,14 @@ type Result = {
   primary: string;
   secondary?: string;
   href: string;
+};
+
+type SearchResponse = {
+  customers: { id: string; name: string; phone: string }[];
+  leads: { id: string; name: string; phone: string; vehicleInfo: string | null }[];
+  vehicles: { id: string; regNumber: string | null; make: string; model: string; customerId: string; customer: { name: string } | null }[];
+  serviceRequests: { id: string; srNumber: string; complaint: string | null; customer: { name: string } | null }[];
+  mechanics: { id: string; name: string; phone: string | null; skills: { mechanic: { label: string } | null }[] }[];
 };
 
 const GROUP_ORDER = ["Customers", "Leads", "Vehicles", "Service Requests", "Mechanics"];
@@ -30,59 +33,26 @@ const GROUP_ICONS: Record<string, React.ElementType> = {
   Mechanics: UserCog,
 };
 
-function buildResults(q: string): Result[] {
-  if (!q.trim()) return [];
-  const lq = q.toLowerCase();
+function apiToResults(data: SearchResponse): Result[] {
   const out: Result[] = [];
 
-  // Customers
-  customers
-    .filter((c) => c.name.toLowerCase().includes(lq) || c.phone.includes(lq) || (c.email?.toLowerCase().includes(lq) ?? false))
-    .slice(0, 4)
-    .forEach((c) => out.push({ id: `c-${c.id}`, group: "Customers", icon: Users, primary: c.name, secondary: c.phone, href: `/customers/${c.id}` }));
-
-  // Leads
-  leads
-    .filter((l) => {
-      const vLabel = l.vehicleInfo ? `${l.vehicleInfo.make} ${l.vehicleInfo.model}` : "";
-      return l.name.toLowerCase().includes(lq) || l.phone.includes(lq) || vLabel.toLowerCase().includes(lq);
-    })
-    .slice(0, 4)
-    .forEach((l) => {
-      const vLabel = l.vehicleInfo ? `${l.vehicleInfo.make} ${l.vehicleInfo.model} '${l.vehicleInfo.year?.toString().slice(2)}` : l.phone;
-      out.push({ id: `l-${l.id}`, group: "Leads", icon: UserPlus, primary: l.name, secondary: vLabel, href: `/leads/${l.id}` });
-    });
-
-  // Vehicles
-  vehicles
-    .filter((v) => {
-      const owner = customers.find((c) => c.id === v.customerId);
-      return (
-        v.registration.toLowerCase().includes(lq) ||
-        `${v.make} ${v.model}`.toLowerCase().includes(lq) ||
-        (owner?.name.toLowerCase().includes(lq) ?? false)
-      );
-    })
-    .slice(0, 4)
-    .forEach((v) => {
-      const owner = customers.find((c) => c.id === v.customerId);
-      out.push({ id: `v-${v.id}`, group: "Vehicles", icon: Car, primary: `${v.make} ${v.model} · ${v.registration}`, secondary: owner?.name, href: `/vehicles/${v.id}` });
-    });
-
-  // Service requests
-  serviceRequests
-    .filter((sr) => sr.id.includes(lq) || sr.issueDescription.toLowerCase().includes(lq))
-    .slice(0, 4)
-    .forEach((sr) => {
-      const cust = customers.find((c) => c.id === sr.customerId);
-      out.push({ id: `sr-${sr.id}`, group: "Service Requests", icon: Wrench, primary: sr.id.toUpperCase(), secondary: cust?.name ?? sr.issueDescription.slice(0, 40), href: `/services/${sr.id}` });
-    });
-
-  // Mechanics
-  mechanics
-    .filter((m) => m.name.toLowerCase().includes(lq) || m.phone.includes(lq))
-    .slice(0, 3)
-    .forEach((m) => out.push({ id: `m-${m.id}`, group: "Mechanics", icon: UserCog, primary: m.name, secondary: m.skills.join(" · "), href: `/mechanics/${m.id}` }));
+  for (const c of data.customers) {
+    out.push({ id: `c-${c.id}`, group: "Customers", icon: Users, primary: c.name, secondary: c.phone, href: `/customers/${c.id}` });
+  }
+  for (const l of data.leads) {
+    out.push({ id: `l-${l.id}`, group: "Leads", icon: UserPlus, primary: l.name, secondary: l.vehicleInfo ?? l.phone, href: `/leads/${l.id}` });
+  }
+  for (const v of data.vehicles) {
+    const label = `${v.make} ${v.model}${v.regNumber ? ` · ${v.regNumber}` : ""}`;
+    out.push({ id: `v-${v.id}`, group: "Vehicles", icon: Car, primary: label, secondary: v.customer?.name, href: `/vehicles/${v.id}` });
+  }
+  for (const sr of data.serviceRequests) {
+    out.push({ id: `sr-${sr.id}`, group: "Service Requests", icon: Wrench, primary: sr.srNumber, secondary: sr.customer?.name ?? sr.complaint?.slice(0, 40), href: `/services/${sr.id}` });
+  }
+  for (const m of data.mechanics) {
+    const skills = m.skills.map((s) => s.mechanic?.label ?? "").filter(Boolean).join(" · ");
+    out.push({ id: `m-${m.id}`, group: "Mechanics", icon: UserCog, primary: m.name, secondary: skills || (m.phone ?? undefined), href: `/mechanics/${m.id}` });
+  }
 
   return out;
 }
@@ -91,22 +61,25 @@ export function GlobalSearch() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [results, setResults] = useState<Result[]>([]);
   const [cursor, setCursor] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const results = useMemo(() => buildResults(query), [query]);
+  const fetchResults = useCallback((q: string) => {
+    if (!q || q.trim().length < 2) { setResults([]); return; }
+    fetch(`/api/search?q=${encodeURIComponent(q.trim())}`)
+      .then((r) => r.json())
+      .then((data: SearchResponse) => setResults(apiToResults(data)))
+      .catch(() => setResults([]));
+  }, []);
 
-  const grouped = useMemo(() => {
-    const map: Record<string, Result[]> = {};
-    for (const r of results) {
-      if (!map[r.group]) map[r.group] = [];
-      map[r.group].push(r);
-    }
-    return GROUP_ORDER.filter((g) => map[g]?.length).map((g) => ({ group: g, items: map[g] }));
-  }, [results]);
-
-  const flatResults = results;
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => fetchResults(query), 300);
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  }, [query, fetchResults]);
 
   useEffect(() => {
     setCursor(0);
@@ -125,15 +98,21 @@ export function GlobalSearch() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  const grouped = GROUP_ORDER.reduce<{ group: string; items: Result[] }[]>((acc, g) => {
+    const items = results.filter((r) => r.group === g);
+    if (items.length) acc.push({ group: g, items });
+    return acc;
+  }, []);
+
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setCursor((c) => Math.min(c + 1, flatResults.length - 1));
+      setCursor((c) => Math.min(c + 1, results.length - 1));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setCursor((c) => Math.max(c - 1, 0));
-    } else if (e.key === "Enter" && flatResults[cursor]) {
-      navigate(flatResults[cursor].href);
+    } else if (e.key === "Enter" && results[cursor]) {
+      navigate(results[cursor].href);
     } else if (e.key === "Escape") {
       setOpen(false);
     }
@@ -203,9 +182,15 @@ export function GlobalSearch() {
               </div>
             )}
 
-            {query && results.length === 0 && (
+            {query.length >= 2 && results.length === 0 && (
               <div className="py-10 text-center text-slate-400">
                 <p className="text-sm">No results for "<span className="font-medium text-slate-600">{query}</span>"</p>
+              </div>
+            )}
+
+            {query.length > 0 && query.length < 2 && (
+              <div className="py-6 text-center text-slate-400 text-xs">
+                Type at least 2 characters to search
               </div>
             )}
 
@@ -218,7 +203,7 @@ export function GlobalSearch() {
                     <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">{group}</span>
                   </div>
                   {items.map((r) => {
-                    const flatIdx = flatResults.findIndex((f) => f.id === r.id);
+                    const flatIdx = results.findIndex((f) => f.id === r.id);
                     const active = flatIdx === cursor;
                     const Icon = r.icon;
                     return (

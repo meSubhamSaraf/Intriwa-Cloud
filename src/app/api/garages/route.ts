@@ -11,11 +11,12 @@ export const GET = withAuth(async (_req, { profile }) => {
   if (profile.role !== "SUPER_ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
-  const [garages, stats] = await Promise.all([
+  const [garages, stats, opsManagers] = await Promise.all([
     garageService.listAll(),
     garageService.getStats(),
+    garageService.listOpsManagers(),
   ]);
-  return NextResponse.json({ garages, stats });
+  return NextResponse.json({ garages, stats, opsManagers });
 });
 
 export const POST = withAuth(async (req, { profile }) => {

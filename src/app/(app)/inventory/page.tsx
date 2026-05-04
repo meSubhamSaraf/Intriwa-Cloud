@@ -103,21 +103,25 @@ const AUDIT_CONFIG: Record<AuditType, { label: string; color: string; icon: Reac
   purchase_recorded: { label: "Purchase Recorded", color: "text-violet-700 bg-violet-50 border-violet-200", icon: ShoppingCart },
 };
 
-// Seed audit history for existing items
-const SEED_AUDITS: AuditEntry[] = [
-  { id: "a1",  itemId: "inv1",  type: "stock_added",       oldValue: 25, newValue: 45, comment: "Monthly restock from Mobil distributor",      hasFile: true,  fileName: "mobil_april_bill.pdf", by: "Rohan M.", timestamp: "2026-04-20T10:15:00" },
-  { id: "a2",  itemId: "inv1",  type: "price_changed",     oldValue: 260, newValue: 280, comment: "Supplier revised price from Apr 2026",      hasFile: false, by: "Rohan M.", timestamp: "2026-04-01T09:00:00" },
-  { id: "a3",  itemId: "inv2",  type: "stock_added",       oldValue: 0,  newValue: 8,  comment: "Initial stock from Mobil distributor order",  hasFile: true,  fileName: "mobil_april_bill.pdf", by: "Rohan M.", timestamp: "2026-04-20T10:15:00" },
-  { id: "a4",  itemId: "inv3",  type: "stock_added",       oldValue: 7,  newValue: 22, comment: "FilterKing April order — 15 pcs",             hasFile: true,  fileName: "filterking_apr.jpg",  by: "Rohan M.", timestamp: "2026-04-15T11:30:00" },
-  { id: "a5",  itemId: "inv4",  type: "stock_added",       oldValue: 0,  newValue: 8,  comment: "FilterKing April order — 8 pcs",              hasFile: true,  fileName: "filterking_apr.jpg",  by: "Rohan M.", timestamp: "2026-04-15T11:30:00" },
-  { id: "a6",  itemId: "inv4",  type: "stock_adjusted",    oldValue: 8,  newValue: 3,  comment: "5 used across SRs in April — manual correction", hasFile: false, by: "Rohan M.", timestamp: "2026-04-22T16:00:00" },
-  { id: "a7",  itemId: "inv5",  type: "stock_added",       oldValue: 6,  newValue: 12, comment: "Fluid World April restocking",                hasFile: false, by: "Rohan M.", timestamp: "2026-04-10T14:00:00" },
-  { id: "a8",  itemId: "inv7",  type: "stock_added",       oldValue: 20, newValue: 30, comment: "AutoZone April order — cleaning supplies",    hasFile: true,  fileName: "autozone_apr25.jpg",  by: "Rohan M.", timestamp: "2026-04-25T09:30:00" },
-  { id: "a9",  itemId: "inv8",  type: "stock_added",       oldValue: 35, newValue: 65, comment: "AutoZone April order — 30 cloths",            hasFile: true,  fileName: "autozone_apr25.jpg",  by: "Rohan M.", timestamp: "2026-04-25T09:30:00" },
-  { id: "a10", itemId: "inv12", type: "price_changed",     oldValue: 1100, newValue: 1200, comment: "Vendor rate hike — BrakeMart April",     hasFile: true,  fileName: "brakemart_ratecard.pdf", by: "Rohan M.", timestamp: "2026-04-02T10:00:00" },
-  { id: "a11", itemId: "inv12", type: "stock_added",       oldValue: 0,  newValue: 4,  comment: "BrakeMart April order",                      hasFile: true,  fileName: "brakemart_apr.jpg",   by: "Rohan M.", timestamp: "2026-04-02T10:00:00" },
-  { id: "a12", itemId: "inv12", type: "stock_adjusted",    oldValue: 4,  newValue: 2,  comment: "2 sets used in SR-045 and SR-061",           hasFile: false, by: "Rohan M.", timestamp: "2026-04-18T17:00:00" },
-];
+function dbAuditToEntry(a: any): AuditEntry {
+  const isPrice = a.type === "PRICE_UPDATE";
+  const type: AuditType =
+    a.type === "STOCK_ADD" || a.type === "INITIAL" ? "stock_added" :
+    a.type === "STOCK_DEDUCT" ? "stock_adjusted" :
+    "price_changed";
+  return {
+    id: a.id,
+    itemId: a.inventoryItemId,
+    type,
+    oldValue: isPrice ? Number(a.oldPrice ?? 0) : Number(a.oldQty ?? 0),
+    newValue: isPrice ? Number(a.newPrice ?? 0) : Number(a.newQty ?? 0),
+    comment: a.comment ?? "",
+    hasFile: !!a.fileUrl,
+    fileName: a.fileUrl ? (a.fileUrl as string).split("/").pop() : undefined,
+    by: a.actorName ?? "System",
+    timestamp: a.createdAt,
+  };
+}
 
 function fmtTimestamp(iso: string) {
   return new Date(iso).toLocaleString("en-IN", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: true });
@@ -637,7 +641,17 @@ function InventoryPageInner() {
       .finally(() => setDbLoading(false));
   }, []);
   const [openItem, setOpenItem] = useState<InventoryItem | null>(null);
-  const [allAudits, setAllAudits] = useState<AuditEntry[]>(SEED_AUDITS);
+  const [allAudits, setAllAudits] = useState<AuditEntry[]>([]);
+
+  useEffect(() => {
+    if (!openItem) return;
+    fetch(`/api/inventory/${openItem.id}`)
+      .then((r) => r.json())
+      .then((data: { auditEntries?: any[] }) => {
+        if (data.auditEntries) setAllAudits(data.auditEntries.map(dbAuditToEntry));
+      })
+      .catch(() => {});
+  }, [openItem?.id]);
 
   const lowStockCount = stock.filter((i) => i.currentStock <= i.minStock && i.currentStock > 0).length;
   const outCount = stock.filter((i) => i.currentStock === 0).length;

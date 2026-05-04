@@ -201,6 +201,7 @@ model Garage {
   mechanicPayouts        MechanicPayout[]
   observations           CustomerObservation[]
   serviceCatalogueItems  ServiceCatalogueItem[]
+  mechanicPenalties      MechanicPenalty[]
 }
 
 // ─── Service Catalogue ───────────────────────────────────────────────────────
@@ -357,6 +358,7 @@ model Mechanic {
   locationHistory   MechanicLocationHistory[]
   serviceItems      ServiceItem[]
   observations      CustomerObservation[]
+  penalties         MechanicPenalty[]
 }
 
 // ─── Skills ───────────────────────────────────────────────────────────────────
@@ -767,4 +769,35 @@ model CustomerObservation {
   customer Customer  @relation(fields: [customerId], references: [id])
   vehicle  Vehicle?  @relation(fields: [vehicleId], references: [id])
   raisedBy Mechanic? @relation(fields: [raisedById], references: [id])
+}
+
+// ─── Mechanic Penalties ───────────────────────────────────────────────────────
+// Ops manager records a penalty/deduction against a mechanic.
+// Deducted automatically from the next payout calculation.
+
+model MechanicPenalty {
+  id           String          @id @default(cuid())
+  garageId     String
+  mechanicId   String
+  amount       Decimal         @db.Decimal(10, 2)
+  reason       String
+  category     PenaltyCategory @default(MISCONDUCT)
+  issuedAt     DateTime        @default(now())
+  issuedById   String?
+  issuedByName String?
+  payoutId     String?         // set when this penalty is included in a payout
+  notes        String?
+  createdAt    DateTime        @default(now())
+
+  garage   Garage   @relation(fields: [garageId], references: [id])
+  mechanic Mechanic @relation(fields: [mechanicId], references: [id])
+}
+
+enum PenaltyCategory {
+  MISCONDUCT
+  RULE_VIOLATION
+  CUSTOMER_COMPLAINT
+  DIRECT_CONTACT_THEFT
+  PROPERTY_DAMAGE
+  OTHER
 }

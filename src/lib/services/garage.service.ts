@@ -22,9 +22,51 @@ export type UpdateGarageInput = Partial<CreateGarageInput> & {
 };
 
 export class GarageService {
-  // List all garages (super admin dashboard)
-  async listAll(): Promise<Garage[]> {
-    return prisma.garage.findMany({ orderBy: { createdAt: "desc" } });
+  // List all garages enriched with per-garage mechanic count, active job count,
+  // and the primary OPS_MANAGER profile (super admin dashboard)
+  async listAll() {
+    const [garages, activeJobCounts] = await Promise.all([
+      prisma.garage.findMany({
+        orderBy: { createdAt: "desc" },
+        include: {
+          _count: { select: { mechanics: { where: { isActive: true } } } },
+          profiles: {
+            where: { role: "OPS_MANAGER" },
+            take: 1,
+            select: { id: true, name: true, email: true, phone: true, createdAt: true },
+          },
+        },
+      }),
+      prisma.serviceRequest.groupBy({
+        by: ["garageId"],
+        where: { status: { in: ["OPEN", "IN_PROGRESS", "WAITING_PARTS"] } },
+        _count: { id: true },
+      }),
+    ]);
+    const jobMap = new Map(activeJobCounts.map((r) => [r.garageId, r._count.id]));
+    return garages.map((g) => ({
+      id: g.id,
+      name: g.name,
+      territory: g.territory,
+      address: g.address,
+      phone: g.phone,
+      email: g.email,
+      status: g.status as string,
+      createdAt: g.createdAt,
+      mechanicsCount: g._count.mechanics,
+      activeJobs: jobMap.get(g.id) ?? 0,
+      opsManagerName: g.profiles[0]?.name ?? "—",
+      opsManagerEmail: g.profiles[0]?.email ?? "",
+    }));
+  }
+
+  // List all OPS_MANAGER profiles across all garages (super admin only)
+  async listOpsManagers() {
+    return prisma.profile.findMany({
+      where: { role: "OPS_MANAGER" },
+      orderBy: { createdAt: "asc" },
+      include: { garage: { select: { id: true, name: true } } },
+    });
   }
 
   async getById(id: string): Promise<Garage | null> {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import {
   Phone, MessageCircle, CheckCircle, XCircle, Clock, ArrowRight,
@@ -8,35 +8,79 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge } from "@/components/ui/StatusBadge";
-import { todaysFollowUps, overdueFollowUps, ffPoolFollowUps } from "@/lib/mock-data/followUps";
-import { leads } from "@/lib/mock-data/leads";
-import { serviceRequests } from "@/lib/mock-data/serviceRequests";
-import { customers } from "@/lib/mock-data/customers";
-import { vehicles } from "@/lib/mock-data/vehicles";
 
-// --- Follow-ups tab ---
-const allTodayFollowUps = [...overdueFollowUps, ...todaysFollowUps].slice(0, 12);
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type FUItem = {
+  id: string;
+  leadId: string | null;
+  customerId: string | null;
+  customerName: string;
+  phone: string;
+  vehicleLabel: string | null;
+  reason: string;
+  dueDate: string;
+};
+
+type LeadItem = {
+  id: string;
+  name: string;
+  phone: string;
+  vehicleInfo: string | null;
+  source: string | null;
+  notes: string | null;
+};
+
+type AddOnItem = {
+  id: string;
+  description: string;
+  estimatedCost: string;
+  status: string;
+  serviceRequest: {
+    id: string;
+    srNumber: string;
+    customer: { id: string; name: string; phone: string } | null;
+    vehicle: { make: string; model: string; regNumber: string | null } | null;
+  };
+};
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function fmtTime(iso: string) {
   return new Date(iso).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true });
 }
 
 function isOverdue(dueDate: string) {
-  return new Date(dueDate) < new Date("2026-04-26T00:00:00");
+  return new Date(dueDate) < new Date();
 }
 
-function FollowUpsTab() {
+const sourceLabels: Record<string, string> = {
+  call: "Call", CALL: "Call",
+  society: "Society", SOCIETY: "Society",
+  walkin: "Walk-in", WALKIN: "Walk-in",
+  whatsapp: "WhatsApp", WHATSAPP: "WhatsApp",
+  referral: "Referral", REFERRAL: "Referral",
+  other: "Other", OTHER: "Other",
+};
+
+// ─── Follow-ups tab ───────────────────────────────────────────────────────────
+
+function FollowUpsTab({ items }: { items: FUItem[] }) {
   return (
     <div className="space-y-2">
-      {allTodayFollowUps.map((fu) => {
+      {items.length === 0 && (
+        <p className="text-sm text-slate-500 text-center py-8">No follow-ups due today</p>
+      )}
+      {items.map((fu) => {
         const overdue = isOverdue(fu.dueDate);
         const href = fu.leadId
           ? `/leads/${fu.leadId}`
-          : fu.serviceRequestId
-          ? `/services/${fu.serviceRequestId}`
           : fu.customerId
           ? `/customers/${fu.customerId}`
           : null;
+        const callHref = fu.phone ? `tel:${fu.phone}` : null;
+        const waHref = fu.phone ? `https://wa.me/91${fu.phone.replace(/\D/g, "")}` : null;
+
         return (
           <div
             key={fu.id}
@@ -64,20 +108,18 @@ function FollowUpsTab() {
             <p className="text-[11px] text-slate-600 mb-2 line-clamp-2">{fu.reason}</p>
 
             <div className="flex items-center gap-1">
+              {callHref ? (
+                <a href={callHref} className="flex items-center gap-1 text-[10px] font-medium text-slate-500 hover:text-green-600 hover:bg-green-50 px-1.5 py-1 rounded transition-colors">
+                  <Phone className="w-3 h-3" /> Call
+                </a>
+              ) : null}
+              {waHref ? (
+                <a href={waHref} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[10px] font-medium text-slate-500 hover:text-green-600 hover:bg-green-50 px-1.5 py-1 rounded transition-colors">
+                  <MessageCircle className="w-3 h-3" /> WhatsApp
+                </a>
+              ) : null}
               <button
-                onClick={() => toast.info("Call initiated (mock)")}
-                className="flex items-center gap-1 text-[10px] font-medium text-slate-500 hover:text-green-600 hover:bg-green-50 px-1.5 py-1 rounded transition-colors"
-              >
-                <Phone className="w-3 h-3" /> Call
-              </button>
-              <button
-                onClick={() => toast.success("WhatsApp sent (mock)")}
-                className="flex items-center gap-1 text-[10px] font-medium text-slate-500 hover:text-green-600 hover:bg-green-50 px-1.5 py-1 rounded transition-colors"
-              >
-                <MessageCircle className="w-3 h-3" /> WhatsApp
-              </button>
-              <button
-                onClick={() => toast.success("Reschedule dialog (mock)")}
+                onClick={() => toast.info("Reschedule — open the lead to update follow-up date")}
                 className="flex items-center gap-1 text-[10px] font-medium text-slate-500 hover:text-blue-600 hover:bg-blue-50 px-1.5 py-1 rounded transition-colors"
               >
                 <CalendarPlus className="w-3 h-3" /> Reschedule
@@ -113,70 +155,69 @@ function FollowUpsTab() {
   );
 }
 
-// --- New Leads tab ---
-const newLeads = leads
-  .filter((l) => l.status === "new" && (l.createdAt > "2026-04-24T00:00:00"))
-  .slice(0, 6);
+// ─── New Leads tab ────────────────────────────────────────────────────────────
 
-const sourceLabels: Record<string, string> = {
-  call: "Call", society: "Society", walkin: "Walk-in",
-  whatsapp: "WhatsApp", referral: "Referral", other: "Other",
-};
-
-function NewLeadsTab() {
+function NewLeadsTab({ leads }: { leads: LeadItem[] }) {
   return (
     <div className="space-y-2">
-      {newLeads.map((lead) => (
-        <div key={lead.id} className="bg-white border border-slate-200 rounded-lg p-3">
-          <div className="flex items-start justify-between gap-2 mb-1.5">
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-slate-800 truncate">{lead.name}</p>
-              <p className="text-[11px] text-slate-500 tabular-nums">{lead.phone}</p>
+      {leads.length === 0 && (
+        <p className="text-sm text-slate-500 text-center py-8">No new leads</p>
+      )}
+      {leads.map((lead) => {
+        const callHref = lead.phone ? `tel:${lead.phone}` : null;
+        const waHref = lead.phone ? `https://wa.me/91${lead.phone.replace(/\D/g, "")}` : null;
+
+        return (
+          <div key={lead.id} className="bg-white border border-slate-200 rounded-lg p-3">
+            <div className="flex items-start justify-between gap-2 mb-1.5">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-slate-800 truncate">{lead.name}</p>
+                <p className="text-[11px] text-slate-500 tabular-nums">{lead.phone}</p>
+              </div>
+              {lead.source && (
+                <span className="text-[10px] font-medium text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded whitespace-nowrap">
+                  {sourceLabels[lead.source] ?? lead.source}
+                </span>
+              )}
             </div>
-            <span className="text-[10px] font-medium text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded whitespace-nowrap">
-              {sourceLabels[lead.source]}
-            </span>
-          </div>
 
-          {lead.vehicleInfo && (
-            <p className="text-[11px] text-slate-600 mb-1 flex items-center gap-1">
-              <Car className="w-3 h-3" />
-              {lead.vehicleInfo.make} {lead.vehicleInfo.model}
-              {lead.vehicleInfo.year ? ` '${String(lead.vehicleInfo.year).slice(2)}` : ""}
-            </p>
-          )}
-          {lead.issueDescription && (
-            <p className="text-[11px] text-slate-500 mb-2 line-clamp-1">{lead.issueDescription}</p>
-          )}
+            {lead.vehicleInfo && (
+              <p className="text-[11px] text-slate-600 mb-1 flex items-center gap-1">
+                <Car className="w-3 h-3" />
+                {lead.vehicleInfo}
+              </p>
+            )}
+            {lead.notes && (
+              <p className="text-[11px] text-slate-500 mb-2 line-clamp-1">{lead.notes}</p>
+            )}
 
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => toast.info("Call initiated (mock)")}
-              className="flex items-center gap-1 text-[10px] font-medium text-slate-500 hover:text-green-600 hover:bg-green-50 px-1.5 py-1 rounded transition-colors"
-            >
-              <Phone className="w-3 h-3" /> Call
-            </button>
-            <button
-              onClick={() => toast.success("WhatsApp sent (mock)")}
-              className="flex items-center gap-1 text-[10px] font-medium text-slate-500 hover:text-green-600 hover:bg-green-50 px-1.5 py-1 rounded transition-colors"
-            >
-              <MessageCircle className="w-3 h-3" /> WhatsApp
-            </button>
-            <Link
-              href={`/leads/${lead.id}`}
-              className="flex items-center gap-1 text-[10px] font-medium text-slate-500 hover:text-brand-navy-600 hover:bg-brand-navy-50 px-1.5 py-1 rounded transition-colors ml-auto"
-            >
-              Qualify <ArrowRight className="w-3 h-3" />
-            </Link>
-            <button
-              onClick={() => toast.info("Marked lost")}
-              className="flex items-center gap-1 text-[10px] font-medium text-slate-500 hover:text-red-600 hover:bg-red-50 px-1.5 py-1 rounded transition-colors"
-            >
-              <XCircle className="w-3 h-3" /> Lost
-            </button>
+            <div className="flex items-center gap-1">
+              {callHref && (
+                <a href={callHref} className="flex items-center gap-1 text-[10px] font-medium text-slate-500 hover:text-green-600 hover:bg-green-50 px-1.5 py-1 rounded transition-colors">
+                  <Phone className="w-3 h-3" /> Call
+                </a>
+              )}
+              {waHref && (
+                <a href={waHref} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[10px] font-medium text-slate-500 hover:text-green-600 hover:bg-green-50 px-1.5 py-1 rounded transition-colors">
+                  <MessageCircle className="w-3 h-3" /> WhatsApp
+                </a>
+              )}
+              <Link
+                href={`/leads/${lead.id}`}
+                className="flex items-center gap-1 text-[10px] font-medium text-slate-500 hover:text-brand-navy-600 hover:bg-brand-navy-50 px-1.5 py-1 rounded transition-colors ml-auto"
+              >
+                Qualify <ArrowRight className="w-3 h-3" />
+              </Link>
+              <button
+                onClick={() => toast.info("Open the lead to mark as lost")}
+                className="flex items-center gap-1 text-[10px] font-medium text-slate-500 hover:text-red-600 hover:bg-red-50 px-1.5 py-1 rounded transition-colors"
+              >
+                <XCircle className="w-3 h-3" /> Lost
+              </button>
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
       <Link href="/leads" className="flex items-center justify-center gap-1 text-[10px] font-medium text-slate-400 hover:text-brand-navy-600 py-1 transition-colors">
         See all leads <ArrowRight className="w-3 h-3" />
       </Link>
@@ -184,11 +225,18 @@ function NewLeadsTab() {
   );
 }
 
-// --- F&F Pool tab ---
-function FFPoolTab() {
+// ─── F&F Pool tab ─────────────────────────────────────────────────────────────
+
+function FFPoolTab({ items }: { items: FUItem[] }) {
   return (
     <div className="space-y-2">
-      {ffPoolFollowUps.map((fu) => {
+      {items.length === 0 && (
+        <div className="py-8 text-center text-slate-400">
+          <p className="text-sm">No doorstep items in queue</p>
+          <p className="text-[11px] mt-1 text-slate-300">Follow-ups with flexible scheduling appear here</p>
+        </div>
+      )}
+      {items.map((fu) => {
         const href = fu.leadId ? `/leads/${fu.leadId}` : fu.customerId ? `/customers/${fu.customerId}` : null;
         return (
           <div key={fu.id} className="bg-white border border-slate-200 rounded-lg p-3">
@@ -207,7 +255,7 @@ function FFPoolTab() {
             <p className="text-[11px] text-slate-600 mb-2 line-clamp-2">{fu.reason}</p>
             <div className="flex items-center gap-1">
               <button
-                onClick={() => toast.success("Opening scheduling dialog (mock)")}
+                onClick={() => toast.info("Open the lead to schedule a doorstep visit")}
                 className="flex items-center gap-1 text-[10px] font-medium text-brand-navy-600 hover:bg-brand-navy-50 px-2 py-1 rounded border border-brand-navy-200 transition-colors"
               >
                 <CalendarPlus className="w-3 h-3" /> Try to schedule
@@ -228,27 +276,20 @@ function FFPoolTab() {
   );
 }
 
-// --- Awaiting Approval tab ---
-const awaitingApproval = serviceRequests.flatMap((sr) =>
-  sr.addOns
-    .filter((ao) => ao.status === "pending")
-    .map((ao) => ({ sr, ao }))
-);
+// ─── Awaiting Approval tab ────────────────────────────────────────────────────
 
-const mechNameMap: Record<string, string> = {
-  mech1: "Raju Singh", mech2: "Mohan Kumar", mech3: "Kiran Babu",
-  mech4: "Suresh Nair", mech5: "Arjun Pillai", mech6: "Deepak Raj",
-};
-
-function AwaitingApprovalTab() {
+function AwaitingApprovalTab({ addOns }: { addOns: AddOnItem[] }) {
   return (
     <div className="space-y-2">
-      {awaitingApproval.length === 0 ? (
+      {addOns.length === 0 ? (
         <p className="text-sm text-slate-500 text-center py-8">No pending approvals</p>
       ) : (
-        awaitingApproval.map(({ sr, ao }) => {
-          const customer = customers.find((c) => c.id === sr.customerId);
-          const vehicle = vehicles.find((v) => v.id === sr.vehicleId);
+        addOns.map((ao) => {
+          const customer = ao.serviceRequest.customer;
+          const vehicle = ao.serviceRequest.vehicle;
+          const phone = customer?.phone ?? "";
+          const callHref = phone ? `tel:${phone}` : null;
+
           return (
             <div key={ao.id} className="bg-amber-50 border border-amber-200 rounded-lg p-3 relative">
               <div className="flex items-start justify-between gap-2 mb-1.5">
@@ -263,40 +304,33 @@ function AwaitingApprovalTab() {
                     <Flame className="w-3 h-3 inline mr-0.5" />
                     Approval needed
                   </span>
-                  <Link href={`/services/${sr.id}`} className="text-[10px] font-medium text-slate-500 hover:text-brand-navy-600 flex items-center gap-0.5">
+                  <Link href={`/services/${ao.serviceRequest.id}`} className="text-[10px] font-medium text-slate-500 hover:text-brand-navy-600 flex items-center gap-0.5">
                     View SR <ArrowRight className="w-3 h-3" />
                   </Link>
                 </div>
               </div>
 
               <div className="bg-white border border-amber-200 rounded p-2 mb-2">
-                <p className="text-[11px] font-semibold text-slate-700">{ao.name}</p>
+                <p className="text-[11px] font-semibold text-slate-700">{ao.description}</p>
                 <p className="text-[11px] text-slate-500">
-                  Flagged by {mechNameMap[ao.flaggedBy] ?? ao.flaggedBy} · +₹{ao.price.toLocaleString("en-IN")} impact
+                  Estimated cost: +₹{Number(ao.estimatedCost).toLocaleString("en-IN")}
                 </p>
-                {ao.mediaUrls && ao.mediaUrls.length > 0 && (
-                  <div className="flex items-center gap-1 mt-1">
-                    <ImageIcon className="w-3 h-3 text-slate-400" />
-                    <span className="text-[10px] text-slate-400">{ao.mediaUrls.length} photo{ao.mediaUrls.length > 1 ? "s" : ""} attached</span>
-                  </div>
-                )}
               </div>
 
               <div className="flex items-center gap-1">
+                {callHref && (
+                  <a href={callHref} className="flex items-center gap-1 text-[10px] font-medium text-slate-500 hover:text-green-600 hover:bg-green-50 px-1.5 py-1 rounded transition-colors">
+                    <Phone className="w-3 h-3" /> Call
+                  </a>
+                )}
                 <button
-                  onClick={() => toast.info("Call customer (mock)")}
-                  className="flex items-center gap-1 text-[10px] font-medium text-slate-500 hover:text-green-600 hover:bg-green-50 px-1.5 py-1 rounded transition-colors"
-                >
-                  <Phone className="w-3 h-3" /> Call
-                </button>
-                <button
-                  onClick={() => toast.success("Add-on approved (mock)")}
+                  onClick={() => toast.success("Open the SR to approve this add-on")}
                   className="flex items-center gap-1 text-[10px] font-medium text-green-700 hover:bg-green-50 px-1.5 py-1 rounded border border-green-200 transition-colors ml-auto"
                 >
                   <CheckCircle className="w-3 h-3" /> Approve
                 </button>
                 <button
-                  onClick={() => toast.info("Add-on declined (mock)")}
+                  onClick={() => toast.info("Open the SR to decline this add-on")}
                   className="flex items-center gap-1 text-[10px] font-medium text-red-700 hover:bg-red-50 px-1.5 py-1 rounded border border-red-200 transition-colors"
                 >
                   <XCircle className="w-3 h-3" /> Decline
@@ -306,25 +340,64 @@ function AwaitingApprovalTab() {
           );
         })
       )}
-      <Link href="/services?status=awaiting_approval" className="flex items-center justify-center gap-1 text-[10px] font-medium text-slate-400 hover:text-brand-navy-600 py-1 transition-colors">
-        See all approvals <ArrowRight className="w-3 h-3" />
+      <Link href="/services" className="flex items-center justify-center gap-1 text-[10px] font-medium text-slate-400 hover:text-brand-navy-600 py-1 transition-colors">
+        See all service requests <ArrowRight className="w-3 h-3" />
       </Link>
     </div>
   );
 }
 
-// --- Main component ---
-const TABS = [
-  { id: "followups", label: "Follow-ups", count: allTodayFollowUps.length },
-  { id: "leads", label: "New Leads", count: newLeads.length },
-  { id: "ff", label: "F&F Pool", count: ffPoolFollowUps.length },
-  { id: "approval", label: "Approvals", count: awaitingApproval.length },
-] as const;
+// ─── Main component ───────────────────────────────────────────────────────────
 
-type TabId = (typeof TABS)[number]["id"];
+type TabId = "followups" | "leads" | "ff" | "approval";
 
 export function ActionBacklog() {
   const [activeTab, setActiveTab] = useState<TabId>("followups");
+  const [followUps, setFollowUps] = useState<FUItem[]>([]);
+  const [leads, setLeads] = useState<LeadItem[]>([]);
+  const [addOns, setAddOns] = useState<AddOnItem[]>([]);
+
+  useEffect(() => {
+    // Follow-ups: today + overdue
+    fetch("/api/followups")
+      .then((r) => r.json())
+      .then((items: FUItem[]) => {
+        const endOfToday = new Date();
+        endOfToday.setHours(23, 59, 59, 999);
+        const due = items
+          .filter((f) => new Date(f.dueDate) <= endOfToday)
+          .slice(0, 12);
+        setFollowUps(due);
+      })
+      .catch(() => {});
+
+    // New leads
+    fetch("/api/leads?status=NEW")
+      .then((r) => r.json())
+      .then((data: LeadItem[]) => setLeads(data.slice(0, 6)))
+      .catch(() => {});
+
+    // Pending add-ons
+    fetch("/api/add-ons?status=PENDING")
+      .then((r) => r.json())
+      .then((data: AddOnItem[]) => setAddOns(data))
+      .catch(() => {});
+  }, []);
+
+  // F&F pool: follow-ups with no specific scheduled time (flexible)
+  const ffPool = followUps.filter((f) => {
+    const d = new Date(f.dueDate);
+    return d.getHours() === 0 && d.getMinutes() === 0;
+  });
+
+  const overdueCount = followUps.filter((f) => isOverdue(f.dueDate)).length;
+
+  const TABS = [
+    { id: "followups" as TabId, label: "Follow-ups", count: followUps.length },
+    { id: "leads" as TabId, label: "New Leads", count: leads.length },
+    { id: "ff" as TabId, label: "F&F Pool", count: ffPool.length },
+    { id: "approval" as TabId, label: "Approvals", count: addOns.length },
+  ];
 
   return (
     <div className="flex flex-col min-h-0">
@@ -348,7 +421,7 @@ export function ActionBacklog() {
                 className={`rounded-full px-1.5 py-0 text-[10px] font-semibold ${
                   activeTab === tab.id
                     ? "bg-brand-navy-700 text-white"
-                    : tab.id === "followups" && overdueFollowUps.length > 0
+                    : tab.id === "followups" && overdueCount > 0
                     ? "bg-red-500 text-white"
                     : "bg-slate-200 text-slate-600"
                 }`}
@@ -362,10 +435,10 @@ export function ActionBacklog() {
 
       {/* Tab content */}
       <div className="overflow-y-auto flex-1">
-        {activeTab === "followups" && <FollowUpsTab />}
-        {activeTab === "leads" && <NewLeadsTab />}
-        {activeTab === "ff" && <FFPoolTab />}
-        {activeTab === "approval" && <AwaitingApprovalTab />}
+        {activeTab === "followups" && <FollowUpsTab items={followUps} />}
+        {activeTab === "leads" && <NewLeadsTab leads={leads} />}
+        {activeTab === "ff" && <FFPoolTab items={ffPool} />}
+        {activeTab === "approval" && <AwaitingApprovalTab addOns={addOns} />}
       </div>
     </div>
   );

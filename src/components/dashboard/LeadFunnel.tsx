@@ -1,24 +1,40 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { TrendingUp } from "lucide-react";
-import { leads } from "@/lib/mock-data/leads";
 
 const STAGES = [
-  { status: "new",       label: "New",       color: "bg-blue-400" },
-  { status: "contacted", label: "Contacted",  color: "bg-violet-400" },
-  { status: "qualified", label: "Qualified",  color: "bg-amber-400" },
-  { status: "booked",    label: "Booked",     color: "bg-green-500" },
+  { status: "NEW",       label: "New",       color: "bg-blue-400" },
+  { status: "CONTACTED", label: "Contacted",  color: "bg-violet-400" },
+  { status: "QUALIFIED", label: "Qualified",  color: "bg-amber-400" },
+  { status: "CONVERTED", label: "Booked",     color: "bg-green-500" },
 ] as const;
 
-const LOST = leads.filter((l) => l.status === "lost").length;
+type StageStatus = (typeof STAGES)[number]["status"];
 
 export function LeadFunnel() {
-  const counts = STAGES.map((s) => ({
-    ...s,
-    count: leads.filter((l) => l.status === s.status).length,
-  }));
-  const max = Math.max(...counts.map((s) => s.count), 1);
-  const total = leads.length;
-  const converted = counts.find((s) => s.status === "booked")?.count ?? 0;
+  const [counts, setCounts] = useState<Record<string, number>>({});
+  const [total, setTotal] = useState(0);
+
+  useEffect(() => {
+    fetch("/api/leads")
+      .then((r) => r.json())
+      .then((leads: { status: string }[]) => {
+        const map: Record<string, number> = {};
+        for (const l of leads) {
+          map[l.status] = (map[l.status] ?? 0) + 1;
+        }
+        setCounts(map);
+        setTotal(leads.length);
+      })
+      .catch(() => {});
+  }, []);
+
+  const stageCounts = STAGES.map((s) => ({ ...s, count: counts[s.status] ?? 0 }));
+  const lost = counts["LOST"] ?? 0;
+  const converted = counts["CONVERTED"] ?? 0;
+  const max = Math.max(...stageCounts.map((s) => s.count), lost, 1);
 
   return (
     <div className="flex flex-col h-full">
@@ -33,10 +49,10 @@ export function LeadFunnel() {
       </div>
 
       <div className="flex-1 flex flex-col justify-center gap-2.5">
-        {counts.map((s) => {
+        {stageCounts.map((s) => {
           const pct = Math.round((s.count / max) * 100);
           return (
-            <Link key={s.status} href={`/leads`} className="group">
+            <Link key={s.status} href="/leads" className="group">
               <div className="flex items-center gap-2">
                 <span className="text-[11px] text-slate-500 w-16 shrink-0">{s.label}</span>
                 <div className="flex-1 bg-slate-100 rounded-full h-4 overflow-hidden">
@@ -57,10 +73,10 @@ export function LeadFunnel() {
           <div className="flex-1 bg-slate-100 rounded-full h-4 overflow-hidden">
             <div
               className="h-full rounded-full bg-red-300"
-              style={{ width: `${Math.round((LOST / max) * 100)}%` }}
+              style={{ width: `${Math.round((lost / max) * 100)}%` }}
             />
           </div>
-          <span className="text-[11px] text-slate-400 tabular-nums w-5 text-right">{LOST}</span>
+          <span className="text-[11px] text-slate-400 tabular-nums w-5 text-right">{lost}</span>
         </div>
       </div>
 

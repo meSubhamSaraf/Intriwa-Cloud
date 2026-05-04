@@ -12,11 +12,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { GlobalSearch } from "@/components/ui/GlobalSearch";
-import { vehicles } from "@/lib/mock-data/vehicles";
-import { customers } from "@/lib/mock-data/customers";
-import { followUps } from "@/lib/mock-data/followUps";
-
-const TODAY = "2026-04-27";
 
 const breadcrumbMap: Record<string, string> = {
   "/dashboard":            "Dashboard",
@@ -65,7 +60,7 @@ function getBreadcrumb(pathname: string): { parent?: string; current: string } {
 }
 
 function daysUntil(iso: string): number {
-  return Math.ceil((new Date(iso).getTime() - new Date(TODAY).getTime()) / 86_400_000);
+  return Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000);
 }
 
 function fmtDue(iso: string): string {
@@ -88,7 +83,7 @@ type DocAlert = {
 type FUAlert = {
   id: string;
   customerName: string;
-  vehicleLabel?: string;
+  vehicleLabel?: string | null;
   reason: string;
   dueDate: string;
   href: string;
@@ -96,47 +91,64 @@ type FUAlert = {
 };
 
 function useAlerts() {
-  const docAlerts: DocAlert[] = [];
-  for (const v of vehicles) {
-    const owner = customers.find((c) => c.id === v.customerId);
-    if (!owner) continue;
-    for (const [kind, expiry] of [
-      ["PUC", v.documents.pucExpiry],
-      ["Insurance", v.documents.insuranceExpiry],
-    ] as [string, string | undefined][]) {
-      if (!expiry) continue;
-      const days = daysUntil(expiry);
-      if (days <= 30) {
-        docAlerts.push({
-          vehicleId: v.id,
-          customerId: v.customerId,
-          reg: v.registration,
-          ownerName: owner.name,
-          kind: kind as "PUC" | "Insurance",
-          expiry,
-          days,
-        });
-      }
-    }
-  }
-  docAlerts.sort((a, b) => a.days - b.days);
+  const [docAlerts, setDocAlerts] = useState<DocAlert[]>([]);
+  const [fuAlerts, setFuAlerts] = useState<FUAlert[]>([]);
 
-  const now = new Date(TODAY).getTime();
-  const todayEnd = now + 86_400_000;
+  useEffect(() => {
+    fetch("/api/vehicles")
+      .then((r) => r.json())
+      .then((vehicles: any[]) => {
+        const alerts: DocAlert[] = [];
+        for (const v of vehicles) {
+          for (const [kind, expiry] of [
+            ["PUC", v.pucExpiry],
+            ["Insurance", v.insuranceExpiry],
+          ] as [string, string | null][]) {
+            if (!expiry) continue;
+            const days = daysUntil(expiry);
+            if (days <= 30) {
+              alerts.push({
+                vehicleId: v.id,
+                customerId: v.customerId,
+                reg: v.regNumber ?? "",
+                ownerName: v.customer?.name ?? "Unknown",
+                kind: kind as "PUC" | "Insurance",
+                expiry,
+                days,
+              });
+            }
+          }
+        }
+        alerts.sort((a, b) => a.days - b.days);
+        setDocAlerts(alerts);
+      })
+      .catch(() => {});
+  }, []);
 
-  const fuAlerts: FUAlert[] = followUps
-    .filter((f) => f.status === "pending")
-    .filter((f) => new Date(f.dueDate).getTime() < todayEnd)
-    .map((f) => ({
-      id: f.id,
-      customerName: f.customerName,
-      vehicleLabel: f.vehicleLabel,
-      reason: f.reason,
-      dueDate: f.dueDate,
-      href: "/followups",
-      overdue: new Date(f.dueDate).getTime() < now,
-    }))
-    .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+  useEffect(() => {
+    fetch("/api/followups")
+      .then((r) => r.json())
+      .then((items: any[]) => {
+        const now = Date.now();
+        const endOfToday = new Date();
+        endOfToday.setHours(23, 59, 59, 999);
+
+        const alerts: FUAlert[] = items
+          .filter((f) => new Date(f.dueDate).getTime() <= endOfToday.getTime())
+          .map((f) => ({
+            id: f.id,
+            customerName: f.customerName,
+            vehicleLabel: f.vehicleLabel,
+            reason: f.reason,
+            dueDate: f.dueDate,
+            href: "/followups",
+            overdue: new Date(f.dueDate).getTime() < now,
+          }))
+          .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+        setFuAlerts(alerts);
+      })
+      .catch(() => {});
+  }, []);
 
   return { docAlerts, fuAlerts };
 }

@@ -1,14 +1,21 @@
 "use client";
 
-import { useState, Suspense } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Camera, Check, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { societies } from "@/lib/mock-data/societies";
 
 const inputCls = "w-full h-9 px-3 text-sm border border-slate-200 rounded-md bg-white text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-brand-navy-400 transition-colors";
 const selectCls = "w-full h-9 px-3 text-sm border border-slate-200 rounded-md bg-white text-slate-800 focus:outline-none focus:border-brand-navy-400 transition-colors";
 const textareaCls = "w-full px-3 py-2 text-sm border border-slate-200 rounded-md bg-white text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-brand-navy-400 transition-colors resize-none";
+
+type ApiSociety = {
+  id: string;
+  name: string;
+  address: string | null;
+  contactName: string | null;
+  contactPhone: string | null;
+};
 
 interface CampaignForm {
   societyId: string;
@@ -20,12 +27,14 @@ interface CampaignForm {
   notes: string;
 }
 
+const today = new Date().toISOString().slice(0, 10);
+
 const BLANK: CampaignForm = {
   societyId: "",
-  date: "2026-04-26",
+  date: today,
   startTime: "09:00",
   durationHours: "4",
-  opsName: "Rohan Mehta",
+  opsName: "",
   targetLeads: "10",
   notes: "",
 };
@@ -38,13 +47,21 @@ function CampaignActivationContent() {
     societyId: searchParams.get("societyId") ?? "",
   }));
   const [photos, setPhotos] = useState<number[]>([]);
+  const [societies, setSocieties] = useState<ApiSociety[]>([]);
 
-  const society = societies.find(s => s.id === form.societyId);
+  useEffect(() => {
+    fetch("/api/societies")
+      .then((r) => r.json())
+      .then((data: ApiSociety[]) => setSocieties(data))
+      .catch(() => {});
+  }, []);
+
+  const society = societies.find((s) => s.id === form.societyId);
 
   function submit() {
     if (!form.societyId) { toast.error("Select a society"); return; }
     if (!form.date) { toast.error("Select a date"); return; }
-    toast.success("Campaign created! Add leads from the society campaign page.");
+    toast.success("Campaign scheduled! Add leads from the society page after the event.");
     setTimeout(() => router.push("/societies"), 700);
   }
 
@@ -69,12 +86,14 @@ function CampaignActivationContent() {
           <label className="block text-xs font-medium text-slate-600 mb-1">Society <span className="text-red-500">*</span></label>
           <select value={form.societyId} onChange={(e) => setForm({ ...form, societyId: e.target.value })} className={selectCls}>
             <option value="">Select society…</option>
-            {societies.map(s => (
-              <option key={s.id} value={s.id}>{s.name} — {s.location}</option>
+            {societies.map((s) => (
+              <option key={s.id} value={s.id}>{s.name}{s.address ? ` — ${s.address.split(",")[0]}` : ""}</option>
             ))}
           </select>
-          {society && (
-            <p className="text-[11px] text-slate-500 mt-1">Contact: {society.contactPerson} · {society.contactPhone}</p>
+          {society && (society.contactName || society.contactPhone) && (
+            <p className="text-[11px] text-slate-500 mt-1">
+              Contact: {[society.contactName, society.contactPhone].filter(Boolean).join(" · ")}
+            </p>
           )}
         </div>
 
@@ -95,7 +114,7 @@ function CampaignActivationContent() {
           <div>
             <label className="block text-xs font-medium text-slate-600 mb-1">Duration (hours)</label>
             <select value={form.durationHours} onChange={(e) => setForm({ ...form, durationHours: e.target.value })} className={selectCls}>
-              {[2,3,4,5,6,8].map(h => <option key={h} value={String(h)}>{h} hours</option>)}
+              {[2,3,4,5,6,8].map((h) => <option key={h} value={String(h)}>{h} hours</option>)}
             </select>
           </div>
           <div>
@@ -124,7 +143,7 @@ function CampaignActivationContent() {
               <div key={i} className="relative aspect-square rounded-lg border border-slate-200 bg-slate-100 flex items-center justify-center">
                 <Camera className="w-6 h-6 text-slate-400" />
                 <button
-                  onClick={() => setPhotos(p => p.filter((_, j) => j !== i))}
+                  onClick={() => setPhotos((p) => p.filter((_, j) => j !== i))}
                   className="absolute top-1 right-1 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600"
                 >
                   <Trash2 className="w-3 h-3" />
@@ -133,7 +152,7 @@ function CampaignActivationContent() {
             ))}
             {photos.length < 6 && (
               <button
-                onClick={() => { setPhotos(p => [...p, p.length]); toast.info("Photo upload (mock)"); }}
+                onClick={() => { setPhotos((p) => [...p, p.length]); toast.info("Photo upload coming soon"); }}
                 className="aspect-square rounded-lg border-2 border-dashed border-slate-300 flex flex-col items-center justify-center gap-1 hover:border-brand-navy-400 hover:bg-brand-navy-50 transition-colors"
               >
                 <Plus className="w-5 h-5 text-slate-400" />

@@ -1,17 +1,19 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   ArrowLeft, Car, MapPin, Wrench, Package,
   Phone, Navigation, CheckCircle2, Clock,
   Home, Building2, User, Eye, X, AlertTriangle,
+  Camera, Upload, Loader2, ImageIcon, Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 
 // Mechanic-facing limited view of a service request.
 // Shows only what a field mechanic needs: job description, parts, customer location.
+// Photos are mandatory before advancing to READY status.
 
 type SR = {
   id: string;
@@ -39,6 +41,12 @@ type ObsForm = {
   estimatedCost: string;
 };
 
+type UploadedPhoto = {
+  id: string;
+  url: string;
+  label: string;
+};
+
 const STATUS_DISPLAY: Record<string, string> = {
   OPEN: "open", IN_PROGRESS: "in_progress", WAITING_PARTS: "waiting_parts", READY: "ready", CLOSED: "closed",
 };
@@ -49,11 +57,8 @@ const STATUS_LABELS: Record<string, string> = {
 
 const STATUS_FLOW = ["OPEN", "IN_PROGRESS", "WAITING_PARTS", "READY", "CLOSED"] as const;
 
-const SEVERITY_LABELS: Record<string, string> = {
-  URGENT: "Urgent (< 30 days)",
-  ROUTINE: "Routine (next service)",
-  COSMETIC: "Cosmetic only",
-};
+// Photos required before advancing to READY
+const PHOTO_REQUIRED_BEFORE = "READY";
 
 function nextStatus(current: string): string | null {
   const idx = STATUS_FLOW.indexOf(current as typeof STATUS_FLOW[number]);
@@ -84,6 +89,11 @@ export default function FieldSRPage() {
   const [obsForm, setObsForm] = useState<ObsForm>(BLANK_OBS);
   const [savingObs, setSavingObs] = useState(false);
 
+  // Photo state
+  const [photos, setPhotos] = useState<UploadedPhoto[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     fetch(`/api/service-requests/${id}`)
       .then(r => r.ok ? r.json() : null)
@@ -91,10 +101,67 @@ export default function FieldSRPage() {
       .finally(() => setLoading(false));
   }, [id]);
 
+  async function uploadPhoto(file: File) {
+    setUploading(true);
+    try {
+      const ext = file.name.split(".").pop() ?? "jpg";
+      const path = `sr-${id}/photo-${Date.now()}.${ext}`;
+
+      // Get signed upload URL
+      const signRes = await fetch("/api/upload/sign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path }),
+      });
+      if (!signRes.ok) throw new Error("Failed to get upload URL");
+      const { signedUrl, publicUrl } = await signRes.json();
+
+      // Upload file directly to storage
+      const uploadRes = await fetch(signedUrl, {
+        method: "PUT",
+        headers: { "Content-Type": file.type },
+        body: file,
+      });
+      if (!uploadRes.ok) throw new Error("Upload failed");
+
+      // Save as timeline event on the SR
+      await fetch(`/api/service-requests/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ timelinePhoto: { url: publicUrl, label: "Job photo" } }),
+      }).catch(() => {}); // non-blocking
+
+      const newPhoto: UploadedPhoto = {
+        id: `p-${Date.now()}`,
+        url: publicUrl,
+        label: "Job photo",
+      };
+      setPhotos((prev) => [...prev, newPhoto]);
+      toast.success("Photo uploaded");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) uploadPhoto(file);
+    e.target.value = "";
+  }
+
   async function advanceStatus() {
     if (!sr) return;
     const next = nextStatus(sr.status);
     if (!next) return;
+
+    // Require at least one photo before READY
+    if (next === PHOTO_REQUIRED_BEFORE && photos.length === 0) {
+      toast.error("Please upload at least one job photo before marking as Ready");
+      return;
+    }
+
     setAdvancing(true);
     try {
       const res = await fetch(`/api/service-requests/${id}`, {
@@ -148,6 +215,7 @@ export default function FieldSRPage() {
 
   const next = nextStatus(sr.status);
   const displayStatus = STATUS_DISPLAY[sr.status] ?? sr.status.toLowerCase();
+  const needsPhotos = next === PHOTO_REQUIRED_BEFORE && photos.length === 0;
 
   return (
     <div className="max-w-lg mx-auto p-4 space-y-4">
@@ -280,6 +348,71 @@ export default function FieldSRPage() {
         </div>
       )}
 
+      {/* ── Job Photos ── */}
+      <div className="bg-white border border-slate-200 rounded-xl p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <Camera className="w-4 h-4 text-slate-500" />
+            <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Job Photos</p>
+            {next === PHOTO_REQUIRED_BEFORE && (
+              <span className="text-[10px] bg-red-50 text-red-600 border border-red-200 px-1.5 py-0.5 rounded font-medium">
+                Required before Ready
+              </span>
+            )}
+          </div>
+          <span className="text-[11px] text-slate-400">{photos.length} photo{photos.length !== 1 ? "s" : ""}</span>
+        </div>
+
+        {photos.length > 0 && (
+          <div className="grid grid-cols-3 gap-2 mb-3">
+            {photos.map((p) => (
+              <div key={p.id} className="relative aspect-square rounded-lg overflow-hidden bg-slate-100 group">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={p.url} alt={p.label} className="w-full h-full object-cover" />
+                <button
+                  onClick={() => setPhotos((prev) => prev.filter((x) => x.id !== p.id))}
+                  className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  <Trash2 className="w-2.5 h-2.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          className="hidden"
+          onChange={handleFileChange}
+        />
+
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploading}
+          className="w-full h-12 flex items-center justify-center gap-2 border-2 border-dashed border-slate-300 rounded-xl text-slate-500 hover:border-brand-navy-300 hover:text-brand-navy-600 hover:bg-brand-navy-50 transition-colors disabled:opacity-60"
+        >
+          {uploading ? (
+            <><Loader2 className="w-4 h-4 animate-spin" /> Uploading…</>
+          ) : (
+            <><Camera className="w-4 h-4" /> Take Photo / Upload</>
+          )}
+        </button>
+
+        {photos.length === 0 && next !== PHOTO_REQUIRED_BEFORE && (
+          <p className="text-[11px] text-slate-400 text-center mt-2">
+            Photos are optional until marking Ready
+          </p>
+        )}
+        {needsPhotos && (
+          <p className="text-[11px] text-red-500 text-center mt-2 font-medium">
+            Upload at least 1 photo to mark this job as Ready
+          </p>
+        )}
+      </div>
+
       {/* Status advancement */}
       <div className="bg-white border border-slate-200 rounded-xl p-4">
         <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide mb-3">Job Status</p>
@@ -302,10 +435,21 @@ export default function FieldSRPage() {
           })}
         </div>
         {next ? (
-          <button onClick={advanceStatus} disabled={advancing}
-            className="w-full h-11 flex items-center justify-center gap-2 bg-brand-navy-800 text-white font-medium rounded-xl hover:bg-brand-navy-700 transition-colors disabled:opacity-60">
-            <CheckCircle2 className="w-5 h-5" />
-            {advancing ? "Updating…" : `Mark as ${STATUS_LABELS[next]}`}
+          <button
+            onClick={advanceStatus}
+            disabled={advancing || needsPhotos}
+            className={`w-full h-11 flex items-center justify-center gap-2 font-medium rounded-xl transition-colors disabled:opacity-60 ${
+              needsPhotos
+                ? "bg-slate-200 text-slate-400 cursor-not-allowed"
+                : "bg-brand-navy-800 text-white hover:bg-brand-navy-700"
+            }`}
+          >
+            {advancing
+              ? <><Loader2 className="w-5 h-5 animate-spin" /> Updating…</>
+              : needsPhotos
+              ? <><ImageIcon className="w-5 h-5" /> Add photo to continue</>
+              : <><CheckCircle2 className="w-5 h-5" /> {`Mark as ${STATUS_LABELS[next]}`}</>
+            }
           </button>
         ) : (
           <div className="flex items-center justify-center gap-2 text-green-700 bg-green-50 rounded-xl h-11">

@@ -6,7 +6,7 @@ import Link from "next/link";
 import {
   ArrowLeft, Receipt, User, Wrench, CheckCircle2,
   Send, RefreshCw, Copy, Percent, Tag, Car,
-  Loader2,
+  Loader2, ExternalLink, Edit2, AlertTriangle, X,
 } from "lucide-react";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { toast } from "sonner";
@@ -109,11 +109,17 @@ export default function InvoiceDetailPage() {
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Tax / discount edit state
+  // Tax / discount edit state (DRAFT)
   const [taxPercent, setTaxPercent] = useState(0);
   const [discountAmount, setDiscountAmount] = useState(0);
   const [savingTax, setSavingTax] = useState(false);
   const [savingDiscount, setSavingDiscount] = useState(false);
+
+  // Reissue edit state (SENT / OVERDUE)
+  const [showReissueForm, setShowReissueForm] = useState(false);
+  const [reissueTax, setReissueTax] = useState(0);
+  const [reissueDiscount, setReissueDiscount] = useState(0);
+  const [reissuing, setReissuing] = useState(false);
 
   // Send state
   const [sending, setSending] = useState(false);
@@ -136,6 +142,8 @@ export default function InvoiceDetailPage() {
         setInvoice(inv);
         setTaxPercent(inv.taxPercent);
         setDiscountAmount(inv.discountAmount);
+        setReissueTax(inv.taxPercent);
+        setReissueDiscount(inv.discountAmount);
         setPayAmount(String(Math.round(inv.total)));
       })
       .catch(() => toast.error("Failed to load invoice"))
@@ -222,6 +230,33 @@ export default function InvoiceDetailPage() {
     }
   }
 
+  async function reissueInvoice() {
+    if (!invoice) return;
+    setReissuing(true);
+    try {
+      const res = await fetch(`/api/invoices/${invoice.id}/reissue`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ taxPercent: reissueTax, discountAmount: reissueDiscount }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      toast.success(
+        data.whatsappSent
+          ? "Revised invoice sent via WhatsApp"
+          : "Invoice revised (WhatsApp unavailable)"
+      );
+      if (data.cashfreeError) toast.warning(`Payment link: ${data.cashfreeError}`);
+      // Navigate to new invoice
+      const newId = data.invoice?.id;
+      if (newId) router.replace(`/invoices/${newId}`);
+    } catch {
+      toast.error("Failed to revise invoice");
+    } finally {
+      setReissuing(false);
+    }
+  }
+
   async function markPaid() {
     if (!invoice) return;
     setMarkingPaid(true);
@@ -274,6 +309,7 @@ export default function InvoiceDetailPage() {
   }
 
   const canEdit = invoice.status === "DRAFT";
+  const canReissue = invoice.status === "SENT" || invoice.status === "OVERDUE";
   const sr = invoice.serviceRequest;
   const customer = sr?.customer ?? null;
   const vehicle = sr?.vehicle ?? null;
@@ -285,6 +321,11 @@ export default function InvoiceDetailPage() {
   const afterDiscount = Math.max(0, liveSubtotal - liveDiscount);
   const liveTaxAmount = (afterDiscount * liveTax) / 100;
   const liveTotal = afterDiscount + liveTaxAmount;
+
+  // Derived totals for reissue preview
+  const reissueAfterDiscount = Math.max(0, liveSubtotal - reissueDiscount);
+  const reissueTaxAmount = (reissueAfterDiscount * reissueTax) / 100;
+  const reissueTotal = reissueAfterDiscount + reissueTaxAmount;
 
   return (
     <div className="p-4 max-w-2xl">
@@ -334,7 +375,7 @@ export default function InvoiceDetailPage() {
             )}
 
             {/* Resend — SENT or OVERDUE */}
-            {(invoice.status === "SENT" || invoice.status === "OVERDUE") && (
+            {canReissue && (
               <button
                 onClick={resendInvoice}
                 disabled={resending}
@@ -345,8 +386,18 @@ export default function InvoiceDetailPage() {
               </button>
             )}
 
+            {/* Edit & Reissue — SENT or OVERDUE */}
+            {canReissue && !showReissueForm && (
+              <button
+                onClick={() => setShowReissueForm(true)}
+                className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded border border-violet-300 text-violet-700 bg-violet-50 hover:bg-violet-100 transition-colors"
+              >
+                <Edit2 className="w-3.5 h-3.5" /> Edit &amp; Reissue
+              </button>
+            )}
+
             {/* Mark as paid — SENT or OVERDUE */}
-            {(invoice.status === "SENT" || invoice.status === "OVERDUE") && !showPayForm && (
+            {canReissue && !showPayForm && (
               <button
                 onClick={() => setShowPayForm(true)}
                 className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded bg-green-600 text-white hover:bg-green-700 transition-colors"
@@ -357,16 +408,111 @@ export default function InvoiceDetailPage() {
           </div>
         </div>
 
-        {/* Payment link */}
-        {invoice.paymentLinkUrl && (
-          <div className="mt-3 flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-md px-3 py-2">
-            <span className="text-[11px] text-blue-600 truncate flex-1">{invoice.paymentLinkUrl}</span>
-            <button
-              onClick={() => { navigator.clipboard.writeText(invoice.paymentLinkUrl!); toast.success("Payment link copied"); }}
-              className="flex items-center gap-1 text-[11px] font-medium text-blue-700 hover:bg-blue-100 px-2 py-0.5 rounded transition-colors whitespace-nowrap"
-            >
-              <Copy className="w-3 h-3" /> Copy
-            </button>
+        {/* ── Payment button ── */}
+        {invoice.paymentLinkUrl && invoice.status !== "PAID" && (
+          <div className="mt-3 flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2.5">
+            <div className="flex-1 min-w-0">
+              <p className="text-[11px] font-medium text-blue-700 mb-0.5">Cashfree Payment Link</p>
+              <p className="text-[10px] text-blue-500 truncate">{invoice.paymentLinkUrl}</p>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(invoice.paymentLinkUrl!);
+                  toast.success("Payment link copied");
+                }}
+                className="flex items-center gap-1 text-[11px] font-medium text-blue-600 hover:bg-blue-100 px-2 py-1 rounded transition-colors border border-blue-200"
+              >
+                <Copy className="w-3 h-3" /> Copy
+              </button>
+              <a
+                href={invoice.paymentLinkUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 text-[11px] font-semibold bg-blue-600 text-white hover:bg-blue-700 px-3 py-1 rounded transition-colors"
+              >
+                Pay Now <ExternalLink className="w-3 h-3" />
+              </a>
+            </div>
+          </div>
+        )}
+
+        {/* ── Edit & Reissue form ── */}
+        {showReissueForm && (
+          <div className="mt-4 p-4 bg-violet-50 border border-violet-200 rounded-lg">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-violet-600" />
+                <p className="text-xs font-semibold text-violet-800">Edit &amp; Reissue Invoice</p>
+              </div>
+              <button onClick={() => setShowReissueForm(false)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <p className="text-[11px] text-violet-600 mb-3">
+              The current invoice <strong>{invoice.invoiceNumber}</strong> will be cancelled and a new revised invoice will be created and sent to the customer.
+            </p>
+
+            <div className="grid grid-cols-2 gap-3 mb-3">
+              {/* Discount */}
+              <div>
+                <label className="block text-[10px] font-medium text-slate-500 uppercase tracking-wide mb-1">
+                  <Tag className="inline w-2.5 h-2.5 mr-0.5" /> Discount (₹)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  value={reissueDiscount || ""}
+                  onChange={(e) => setReissueDiscount(parseFloat(e.target.value) || 0)}
+                  placeholder="0"
+                  className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-violet-400"
+                />
+              </div>
+              {/* GST */}
+              <div>
+                <label className="block text-[10px] font-medium text-slate-500 uppercase tracking-wide mb-1">
+                  <Percent className="inline w-2.5 h-2.5 mr-0.5" /> GST %
+                </label>
+                <div className="flex gap-1 flex-wrap">
+                  {GST_RATES.map((r) => (
+                    <button
+                      key={r}
+                      onClick={() => setReissueTax(r)}
+                      className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border transition-colors ${
+                        reissueTax === r
+                          ? "bg-violet-700 text-white border-violet-700"
+                          : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                      }`}
+                    >
+                      {r}%
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Preview total */}
+            <div className="bg-white rounded-lg px-3 py-2 border border-violet-100 mb-3 flex items-center justify-between">
+              <span className="text-xs text-slate-500">New total</span>
+              <span className="text-base font-bold text-violet-800 tabular-nums">{fmtMoney(reissueTotal)}</span>
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={reissueInvoice}
+                disabled={reissuing}
+                className="flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-violet-700 text-white hover:bg-violet-800 disabled:opacity-60 transition-colors"
+              >
+                {reissuing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                Cancel Old &amp; Send Revised Invoice
+              </button>
+              <button
+                onClick={() => setShowReissueForm(false)}
+                className="text-xs font-medium px-3 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         )}
 

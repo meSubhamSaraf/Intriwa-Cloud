@@ -1,16 +1,7 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import { BarChart3 } from "lucide-react";
-import { serviceRequests } from "@/lib/mock-data/serviceRequests";
-
-const TODAY = new Date("2026-04-27");
-
-function revenueForDate(dateStr: string): number {
-  return serviceRequests
-    .filter((sr) => {
-      if (!sr.scheduledAt) return false;
-      return sr.scheduledAt.startsWith(dateStr) && (sr.status === "completed" || sr.status === "invoiced" || sr.status === "paid");
-    })
-    .reduce((sum, sr) => sum + (sr.finalAmount ?? sr.estimatedAmount), 0);
-}
 
 function fmtDay(date: Date) {
   return date.toLocaleDateString("en-IN", { weekday: "short" }).slice(0, 2);
@@ -22,29 +13,49 @@ function fmtRupee(n: number) {
   return `₹${n}`;
 }
 
-const DAYS = Array.from({ length: 7 }, (_, i) => {
-  const d = new Date(TODAY);
-  d.setDate(TODAY.getDate() - 6 + i);
-  const dateStr = d.toISOString().slice(0, 10);
-  return {
-    label: fmtDay(d),
-    dateStr,
-    isToday: i === 6,
-    revenue: revenueForDate(dateStr),
-  };
-});
+type Bar = {
+  label: string;
+  dateStr: string;
+  isToday: boolean;
+  revenue: number;
+};
 
-// Pad with some demo data for the chart to look useful
-const DEMO_BASE = [12400, 9800, 18200, 7600, 21000, 15400, 11200];
-const BARS = DAYS.map((d, i) => ({
-  ...d,
-  revenue: d.revenue > 0 ? d.revenue : DEMO_BASE[i],
-}));
-
-const maxRevenue = Math.max(...BARS.map((b) => b.revenue), 1);
-const totalWeek = BARS.reduce((s, b) => s + b.revenue, 0);
+function buildDays(): Bar[] {
+  const today = new Date();
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(today);
+    d.setDate(today.getDate() - 6 + i);
+    return {
+      label: fmtDay(d),
+      dateStr: d.toISOString().slice(0, 10),
+      isToday: i === 6,
+      revenue: 0,
+    };
+  });
+}
 
 export function RevenueTrend() {
+  const [bars, setBars] = useState<Bar[]>(buildDays);
+
+  useEffect(() => {
+    fetch("/api/invoices")
+      .then((r) => r.json())
+      .then((invoices: { total: string; createdAt: string }[]) => {
+        setBars((prev) =>
+          prev.map((bar) => ({
+            ...bar,
+            revenue: invoices
+              .filter((inv) => inv.createdAt.startsWith(bar.dateStr))
+              .reduce((s, inv) => s + Number(inv.total), 0),
+          }))
+        );
+      })
+      .catch(() => {});
+  }, []);
+
+  const maxRevenue = Math.max(...bars.map((b) => b.revenue), 1);
+  const totalWeek = bars.reduce((s, b) => s + b.revenue, 0);
+
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between mb-3">
@@ -56,14 +67,17 @@ export function RevenueTrend() {
       </div>
 
       <div className="flex-1 flex items-end gap-1.5 pb-1">
-        {BARS.map((bar) => {
-          const heightPct = Math.max(8, Math.round((bar.revenue / maxRevenue) * 100));
+        {bars.map((bar) => {
+          const heightPct = bar.revenue > 0 ? Math.max(8, Math.round((bar.revenue / maxRevenue) * 100)) : 4;
           return (
             <div key={bar.dateStr} className="flex-1 flex flex-col items-center gap-1 min-w-0">
-              <span className="text-[9px] text-slate-400 tabular-nums">{fmtRupee(bar.revenue)}</span>
+              {bar.revenue > 0 && (
+                <span className="text-[9px] text-slate-400 tabular-nums">{fmtRupee(bar.revenue)}</span>
+              )}
+              {bar.revenue === 0 && <span className="text-[9px] text-slate-300">—</span>}
               <div className="w-full flex items-end" style={{ height: 72 }}>
                 <div
-                  className={`w-full rounded-t-sm transition-all ${bar.isToday ? "bg-brand-navy-600" : "bg-brand-navy-200"}`}
+                  className={`w-full rounded-t-sm transition-all ${bar.isToday ? "bg-brand-navy-600" : bar.revenue > 0 ? "bg-brand-navy-200" : "bg-slate-100"}`}
                   style={{ height: `${heightPct}%` }}
                 />
               </div>

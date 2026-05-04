@@ -166,6 +166,14 @@ export default function ServiceRequestDetailPage() {
   const [loading, setLoading] = useState(true);
   const [advancing, setAdvancing] = useState(false);
 
+  // Redirect mechanics to the field (limited) view
+  useEffect(() => {
+    fetch("/api/profile")
+      .then((r) => r.ok ? r.json() : null)
+      .then((p) => { if (p?.role === "MECHANIC") router.replace(`/field/${id}`); })
+      .catch(() => {});
+  }, [id, router]);
+
   // Invoice
   const [raisingInvoice, setRaisingInvoice] = useState(false);
   const [raisedInvoiceId, setRaisedInvoiceId] = useState<string | null>(null);

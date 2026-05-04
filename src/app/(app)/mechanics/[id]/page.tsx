@@ -7,14 +7,14 @@ import {
   CheckCircle, MapPin, ChevronLeft, ChevronRight,
   Edit2, Save, X, FileText, DollarSign, History,
   AlertCircle, Upload, LayoutDashboard,
-  Wallet, User, BadgeCheck, Mail, Send,
+  Wallet, User, BadgeCheck, Mail, Send, Loader2,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 
 // ── Constants ─────────────────────────────────────────────────────
 
-const TODAY = "2026-04-28";
+const TODAY = new Date().toISOString().slice(0, 10);
 const HOUR_HEIGHT = 58;
 const START_HOUR = 8;
 const END_HOUR = 19;
@@ -487,15 +487,27 @@ function DocumentsTab({ mechanic }: { mechanic: APIMechanic }) {
 
 // ── Earnings tab ──────────────────────────────────────────────────
 
+type AccruedData = {
+  amount: number;
+  penaltyDeductions: number;
+  net: number;
+  breakdown: { srNumber: string; description: string; closedAt: string | null; amount: number }[];
+};
+
 function EarningsTab({ mechanicId }: { mechanicId: string }) {
   const [loading, setLoading] = useState(true);
   const [payouts, setPayouts] = useState<Payout[]>([]);
   const [summary, setSummary] = useState<EarningsSummary | null>(null);
+  const [accrued, setAccrued] = useState<AccruedData | null>(null);
 
   useEffect(() => {
     fetch(`/api/mechanics/${mechanicId}/earnings`)
       .then(r => r.ok ? r.json() : { payouts: [], summary: null })
-      .then((data: { payouts?: unknown[]; summary?: unknown }) => { setPayouts((data.payouts ?? []) as never); setSummary((data.summary ?? null) as never); })
+      .then((data: { payouts?: unknown[]; summary?: unknown; accrued?: AccruedData }) => {
+        setPayouts((data.payouts ?? []) as never);
+        setSummary((data.summary ?? null) as never);
+        setAccrued(data.accrued ?? null);
+      })
       .finally(() => setLoading(false));
   }, [mechanicId]);
 
@@ -523,6 +535,39 @@ function EarningsTab({ mechanicId }: { mechanicId: string }) {
               <p className="text-base font-bold text-slate-800">{s.value}</p>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Accrued (unpaid) earnings */}
+      {accrued !== null && (
+        <div className={`rounded-xl border p-4 ${accrued.net > 0 ? "bg-green-50 border-green-200" : "bg-slate-50 border-slate-200"}`}>
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-semibold text-slate-700 uppercase tracking-wide">Accrued Earnings (Not Yet Paid)</p>
+            <span className={`text-lg font-bold tabular-nums ${accrued.net > 0 ? "text-green-700" : "text-slate-600"}`}>
+              {fmtRupee(accrued.net)}
+            </span>
+          </div>
+          <div className="flex items-center gap-4 text-[11px] text-slate-500 mb-2">
+            <span>Earned: <strong className="text-slate-700">{fmtRupee(accrued.amount)}</strong></span>
+            {accrued.penaltyDeductions > 0 && (
+              <span className="text-red-600">Penalties: −<strong>{fmtRupee(accrued.penaltyDeductions)}</strong></span>
+            )}
+          </div>
+          {accrued.breakdown.length > 0 ? (
+            <div className="bg-white rounded-lg overflow-hidden border border-slate-200 mt-2">
+              {accrued.breakdown.map((item, i) => (
+                <div key={i} className="flex items-center justify-between px-3 py-2 border-b border-slate-100 last:border-0">
+                  <div>
+                    <span className="text-[11px] font-medium text-slate-700 font-mono">{item.srNumber}</span>
+                    <span className="text-[11px] text-slate-500 ml-2">{item.description}</span>
+                  </div>
+                  <span className="text-[11px] font-semibold text-slate-700 tabular-nums">{fmtRupee(item.amount)}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-[11px] text-slate-400">No closed jobs awaiting payout.</p>
+          )}
         </div>
       )}
 
@@ -624,6 +669,222 @@ function AuditTab({ mechanicId }: { mechanicId: string }) {
   );
 }
 
+// ── Penalties tab ─────────────────────────────────────────────────
+
+type Penalty = {
+  id: string;
+  amount: number;
+  reason: string;
+  category: string;
+  issuedAt: string;
+  issuedByName: string | null;
+  payoutId: string | null;
+  notes: string | null;
+};
+
+const PENALTY_CATEGORIES = [
+  { value: "MISCONDUCT",           label: "Misconduct" },
+  { value: "RULE_VIOLATION",       label: "Rule Violation" },
+  { value: "CUSTOMER_COMPLAINT",   label: "Customer Complaint" },
+  { value: "DIRECT_CONTACT_THEFT", label: "Direct Contact / Poaching" },
+  { value: "PROPERTY_DAMAGE",      label: "Property Damage" },
+  { value: "OTHER",                label: "Other" },
+] as const;
+
+const PENALTY_CAT_COLORS: Record<string, string> = {
+  MISCONDUCT:           "text-red-700 bg-red-50 border-red-200",
+  RULE_VIOLATION:       "text-orange-700 bg-orange-50 border-orange-200",
+  CUSTOMER_COMPLAINT:   "text-amber-700 bg-amber-50 border-amber-200",
+  DIRECT_CONTACT_THEFT: "text-rose-700 bg-rose-50 border-rose-200",
+  PROPERTY_DAMAGE:      "text-purple-700 bg-purple-50 border-purple-200",
+  OTHER:                "text-slate-600 bg-slate-100 border-slate-200",
+};
+
+function PenaltiesTab({ mechanicId }: { mechanicId: string }) {
+  const [loading, setLoading] = useState(true);
+  const [penalties, setPenalties] = useState<Penalty[]>([]);
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ amount: "", reason: "", category: "MISCONDUCT", notes: "" });
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    fetch(`/api/mechanics/${mechanicId}/penalties`)
+      .then(r => r.ok ? r.json() : [])
+      .then((data: Penalty[]) => setPenalties(data.map(p => ({ ...p, amount: Number(p.amount) }))))
+      .finally(() => setLoading(false));
+  }, [mechanicId]);
+
+  async function addPenalty(e: React.FormEvent) {
+    e.preventDefault();
+    if (!form.amount || !form.reason) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/mechanics/${mechanicId}/penalties`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amount: parseFloat(form.amount),
+          reason: form.reason,
+          category: form.category,
+          notes: form.notes || null,
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const created: Penalty = await res.json();
+      setPenalties(prev => [{ ...created, amount: Number(created.amount) }, ...prev]);
+      setForm({ amount: "", reason: "", category: "MISCONDUCT", notes: "" });
+      setShowForm(false);
+      toast.success("Penalty recorded");
+    } catch {
+      toast.error("Failed to record penalty");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const totalPending = penalties.filter(p => !p.payoutId).reduce((s, p) => s + p.amount, 0);
+
+  if (loading) return <div className="py-12 text-center text-slate-400 text-sm">Loading penalties…</div>;
+
+  return (
+    <div className="space-y-4">
+      {/* Summary bar */}
+      {penalties.length > 0 && (
+        <div className="flex items-center justify-between bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+          <div>
+            <p className="text-xs font-semibold text-red-800">{penalties.length} penalty record{penalties.length !== 1 ? "s" : ""}</p>
+            <p className="text-[11px] text-red-600 mt-0.5">
+              {fmtRupee(totalPending)} pending deduction from next payout
+            </p>
+          </div>
+          <span className="text-2xl font-bold text-red-700 tabular-nums">{fmtRupee(totalPending)}</span>
+        </div>
+      )}
+
+      {/* Add penalty button */}
+      {!showForm && (
+        <button
+          onClick={() => setShowForm(true)}
+          className="w-full flex items-center justify-center gap-1.5 text-sm font-medium text-red-700 border border-dashed border-red-300 bg-red-50 hover:bg-red-100 px-4 py-2.5 rounded-xl transition-colors"
+        >
+          <AlertCircle className="w-4 h-4" /> Add Penalty
+        </button>
+      )}
+
+      {/* Add form */}
+      {showForm && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4 space-y-3">
+          <p className="text-xs font-semibold text-red-700 uppercase tracking-wide">New Penalty</p>
+          <form onSubmit={addPenalty} className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[10px] font-medium text-slate-500 uppercase tracking-wide mb-1">Amount (₹) *</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={form.amount}
+                  onChange={e => setForm(f => ({ ...f, amount: e.target.value }))}
+                  placeholder="500"
+                  required
+                  className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-red-400 bg-white"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-medium text-slate-500 uppercase tracking-wide mb-1">Category *</label>
+                <select
+                  value={form.category}
+                  onChange={e => setForm(f => ({ ...f, category: e.target.value }))}
+                  className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-red-400 bg-white"
+                >
+                  {PENALTY_CATEGORIES.map(c => (
+                    <option key={c.value} value={c.value}>{c.label}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="block text-[10px] font-medium text-slate-500 uppercase tracking-wide mb-1">Reason *</label>
+              <input
+                type="text"
+                value={form.reason}
+                onChange={e => setForm(f => ({ ...f, reason: e.target.value }))}
+                placeholder="Brief description of the incident"
+                required
+                className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-red-400 bg-white"
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] font-medium text-slate-500 uppercase tracking-wide mb-1">Notes (optional)</label>
+              <textarea
+                value={form.notes}
+                onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+                rows={2}
+                placeholder="Additional context, incident report reference, etc."
+                className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-red-400 bg-white resize-none"
+              />
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="submit"
+                disabled={saving}
+                className="flex items-center gap-1.5 px-4 py-1.5 text-sm font-semibold rounded-lg bg-red-700 text-white hover:bg-red-800 disabled:opacity-60 transition-colors"
+              >
+                {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <AlertCircle className="w-3.5 h-3.5" />}
+                Record Penalty
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowForm(false)}
+                className="px-4 py-1.5 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Penalty list */}
+      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+        {penalties.length === 0 ? (
+          <div className="py-12 text-center text-slate-400 text-sm">
+            <AlertCircle className="w-6 h-6 mx-auto mb-2 opacity-30" />
+            No penalties recorded
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {penalties.map(p => (
+              <div key={p.id} className="px-4 py-3 flex items-start gap-3">
+                <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center shrink-0 mt-0.5">
+                  <AlertCircle className="w-3.5 h-3.5 text-red-500" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                    <span className="text-sm font-semibold text-red-700 tabular-nums">−{fmtRupee(p.amount)}</span>
+                    <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded border ${PENALTY_CAT_COLORS[p.category] ?? "text-slate-600 bg-slate-100 border-slate-200"}`}>
+                      {PENALTY_CATEGORIES.find(c => c.value === p.category)?.label ?? p.category}
+                    </span>
+                    {p.payoutId ? (
+                      <span className="text-[10px] text-green-700 bg-green-50 border border-green-200 px-1.5 py-0.5 rounded">Deducted</span>
+                    ) : (
+                      <span className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">Pending</span>
+                    )}
+                  </div>
+                  <p className="text-[12px] text-slate-700">{p.reason}</p>
+                  {p.notes && <p className="text-[11px] text-slate-400 mt-0.5">{p.notes}</p>}
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    {fmtDate(p.issuedAt)}{p.issuedByName ? ` · by ${p.issuedByName}` : ""}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────
 
 const ALL_SKILLS = ["2W", "4W", "AC", "Accessory", "Body", "Engine", "Electrical"] as const;
@@ -636,13 +897,14 @@ const AVAIL_STATUSES: { value: MechanicStatus; label: string; dot: string; btn: 
   { value: "off_duty", label: "Off duty", dot: "bg-slate-300", btn: "text-slate-600 bg-slate-100 border-slate-300 hover:bg-slate-200" },
 ];
 
-type Tab = "overview" | "schedule" | "documents" | "earnings" | "audit";
+type Tab = "overview" | "schedule" | "documents" | "earnings" | "penalties" | "audit";
 
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: "overview",  label: "Overview",  icon: <LayoutDashboard className="w-3.5 h-3.5" /> },
   { id: "schedule",  label: "Schedule",  icon: <Clock className="w-3.5 h-3.5" /> },
   { id: "documents", label: "Documents", icon: <FileText className="w-3.5 h-3.5" /> },
   { id: "earnings",  label: "Earnings",  icon: <DollarSign className="w-3.5 h-3.5" /> },
+  { id: "penalties", label: "Penalties", icon: <AlertCircle className="w-3.5 h-3.5" /> },
   { id: "audit",     label: "Audit Log", icon: <History className="w-3.5 h-3.5" /> },
 ];
 
@@ -1140,6 +1402,9 @@ export default function MechanicDetailPage() {
 
       {/* Tab: Earnings */}
       {tab === "earnings" && <EarningsTab mechanicId={id} />}
+
+      {/* Tab: Penalties */}
+      {tab === "penalties" && <PenaltiesTab mechanicId={id} />}
 
       {/* Tab: Audit Log */}
       {tab === "audit" && <AuditTab mechanicId={id} />}
