@@ -761,8 +761,7 @@ model CustomerObservation {
   estimatedCost Decimal?            @db.Decimal(10, 2)
   status        ObservationStatus   @default(NEW)
   convertedSrId String?             // SR that was booked as a result
-  followUpNote  String?
-  followUpAt    DateTime?
+  followUpNote  String?             // JSON: {"d":"ISO-date","n":"note"} when follow-up is set
   createdAt     DateTime            @default(now())
   updatedAt     DateTime            @updatedAt
 

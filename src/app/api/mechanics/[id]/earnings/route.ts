@@ -75,12 +75,17 @@ export const GET = withAuthParams<{ id: string }>(async (_req, _ctx, { id }) => 
   });
 
   // Pending penalties (not yet included in a payout)
-  const pendingPenalties = mechanic
-    ? await prisma.mechanicPenalty.findMany({
+  let pendingPenalties: { amount: { toString(): string } }[] = [];
+  try {
+    if (mechanic) {
+      pendingPenalties = await prisma.mechanicPenalty.findMany({
         where: { mechanicId: id, payoutId: null },
         orderBy: { issuedAt: "desc" },
-      })
-    : [];
+      });
+    }
+  } catch {
+    // table may not exist in DB yet
+  }
   const pendingPenaltyTotal = pendingPenalties.reduce(
     (s, p) => s + Number(p.amount),
     0

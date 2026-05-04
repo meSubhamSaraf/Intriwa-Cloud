@@ -10,7 +10,7 @@ export const GET = withAuth(async (_req, { garageId }) => {
     where: { garageId },
     orderBy: [{ category: "asc" }, { name: "asc" }],
   });
-  return NextResponse.json(items);
+  return NextResponse.json(items.map((i) => ({ ...i, basePrice: Number(i.basePrice) })));
 });
 
 export const POST = withAuth(async (req, { garageId }) => {

@@ -30,6 +30,15 @@ export const GET = withAuth(async (req, { garageId }) => {
 export const POST = withAuth(async (req, { garageId }) => {
   const body = await req.json();
 
+  // Encode follow-up date into followUpNote (no separate DB column needed)
+  let followUpNote: string | null = null;
+  if (body.followUpAt || body.followUpNote) {
+    const obj: Record<string, string> = {};
+    if (body.followUpAt) obj.d = String(body.followUpAt);
+    if (body.followUpNote) obj.n = String(body.followUpNote);
+    followUpNote = JSON.stringify(obj);
+  }
+
   const obs = await prisma.customerObservation.create({
     data: {
       garageId,
@@ -41,7 +50,7 @@ export const POST = withAuth(async (req, { garageId }) => {
       description:   body.description,
       severity:      body.severity      || "ROUTINE",
       estimatedCost: body.estimatedCost ? Number(body.estimatedCost) : null,
-      followUpAt:    body.followUpAt    ? new Date(body.followUpAt) : null,
+      followUpNote,
     },
     include: {
       customer: { select: { id: true, name: true, phone: true } },

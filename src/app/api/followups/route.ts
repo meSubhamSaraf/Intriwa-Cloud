@@ -40,21 +40,36 @@ export const GET = withAuth(async (_req, { garageId }) => {
       take: 100,
     }),
 
-    // Observations with a followUpAt set and not yet resolved
+    // Observations with a follow-up date encoded in followUpNote as JSON {"d":"ISO","n":"note"}
     prisma.customerObservation.findMany({
       where: {
         garageId,
-        followUpAt: { not: null, lte: horizon },
+        followUpNote: { not: null },
         status: { notIn: ["BOOKED", "DISMISSED"] },
       },
       include: {
         customer: { select: { id: true, name: true, phone: true } },
         vehicle:  { select: { make: true, model: true } },
       },
-      orderBy: { followUpAt: "asc" },
-      take: 100,
+      orderBy: { createdAt: "asc" },
+      take: 200,
     }),
   ]);
+
+  function parseObsFollowUp(note: string | null): { date: Date; text: string | null } | null {
+    if (!note) return null;
+    try {
+      const parsed = JSON.parse(note);
+      if (!parsed.d) return null;
+      return { date: new Date(parsed.d), text: parsed.n ?? null };
+    } catch {
+      return null;
+    }
+  }
+
+  const filteredObs = observationsWithFollowUp
+    .map((o) => ({ o, fu: parseObsFollowUp(o.followUpNote) }))
+    .filter(({ fu }) => fu !== null && fu.date <= horizon);
 
   const result = [
     ...leadsWithDue.map((l) => ({
@@ -85,7 +100,7 @@ export const GET = withAuth(async (_req, { garageId }) => {
         status: "pending" as const,
         assignedOpsId: f.lead.assignedOpsId ?? null,
       })),
-    ...observationsWithFollowUp.map((o) => ({
+    ...filteredObs.map(({ o, fu }) => ({
       id: `obs-${o.id}`,
       type: "observation_followup" as const,
       leadId: null as string | null,
@@ -94,7 +109,7 @@ export const GET = withAuth(async (_req, { garageId }) => {
       phone: o.customer.phone,
       vehicleLabel: o.vehicle ? `${o.vehicle.make} ${o.vehicle.model}` : null,
       reason: o.description,
-      dueDate: (o.followUpAt as Date).toISOString(),
+      dueDate: fu!.date.toISOString(),
       status: "pending" as const,
       assignedOpsId: null as string | null,
     })),

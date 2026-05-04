@@ -75,10 +75,15 @@ export const GET = withAuth(async (_req, { garageId }) => {
     };
   });
 
-  const pendingPenalties = await prisma.mechanicPenalty.findMany({
-    where: { mechanicId: mechanic.id, payoutId: null },
-    orderBy: { issuedAt: "desc" },
-  });
+  let pendingPenalties: { amount: { toString(): string } }[] = [];
+  try {
+    pendingPenalties = await prisma.mechanicPenalty.findMany({
+      where: { mechanicId: mechanic.id, payoutId: null },
+      orderBy: { issuedAt: "desc" },
+    });
+  } catch {
+    // table may not exist in DB yet
+  }
   const pendingPenaltyTotal = pendingPenalties.reduce((s, p) => s + Number(p.amount), 0);
 
   return NextResponse.json({
