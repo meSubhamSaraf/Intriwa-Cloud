@@ -45,7 +45,7 @@ export const GET = withAuth(async (_req, { garageId }) => {
       where: {
         garageId,
         followUpAt: { not: null, lte: horizon },
-        status: { notIn: ["CONVERTED", "DISMISSED"] },
+        status: { notIn: ["BOOKED", "DISMISSED"] },
       },
       include: {
         customer: { select: { id: true, name: true, phone: true } },
