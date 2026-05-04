@@ -23,27 +23,34 @@ export const GET = withAuthParams<{ id: string }>(async (_req, _ctx, { id }) => 
     ? new Date(lastPayout.periodEnd)
     : new Date(0);
 
+  const paidItemIds = mechanic
+    ? (
+        await prisma.mechanicPayoutItem.findMany({
+          where: { payout: { mechanicId: id } },
+          select: { serviceItemId: true },
+        })
+      )
+        .map((r) => r.serviceItemId)
+        .filter((x): x is string => x !== null)
+    : [];
+
   const accruedItems = mechanic
     ? await prisma.serviceItem.findMany({
         where: {
-          assignedMechanicId: id,
+          // Items assigned at item level OR at SR level (unassigned at item level)
+          OR: [
+            { assignedMechanicId: id },
+            {
+              assignedMechanicId: null,
+              serviceRequest: { mechanicId: id },
+            },
+          ],
           serviceRequest: {
             status: "CLOSED",
             closedAt: { gt: accrualStart },
           },
-          // Exclude items already in a payout
-          NOT: {
-            id: {
-              in: (
-                await prisma.mechanicPayoutItem.findMany({
-                  where: { payout: { mechanicId: id } },
-                  select: { serviceItemId: true },
-                })
-              )
-                .map((r) => r.serviceItemId)
-                .filter((x): x is string => x !== null),
-            },
-          },
+          // Exclude items already included in a formal payout
+          NOT: { id: { in: paidItemIds } },
         },
         include: { serviceRequest: { select: { srNumber: true, closedAt: true } } },
       })

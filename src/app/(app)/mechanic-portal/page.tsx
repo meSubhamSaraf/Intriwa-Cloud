@@ -33,6 +33,13 @@ type Payout = {
 
 type EarningsSummary = { allTime: number; thisMonth: number };
 
+type AccruedData = {
+  amount: number;
+  penaltyDeductions: number;
+  net: number;
+  breakdown: { srNumber: string; description: string; closedAt: string | null; amount: number }[];
+};
+
 type IncentiveRule = {
   id: string; name: string; description: string | null;
   conditionType: string; conditionPeriod: string; conditionValue: number;
@@ -567,11 +574,16 @@ function EarningsTab() {
   const [loading, setLoading] = useState(true);
   const [payouts, setPayouts] = useState<Payout[]>([]);
   const [summary, setSummary] = useState<EarningsSummary | null>(null);
+  const [accrued, setAccrued] = useState<AccruedData | null>(null);
 
   useEffect(() => {
     fetch("/api/me/earnings")
       .then(r => r.ok ? r.json() : { payouts: [], summary: null })
-      .then(d => { setPayouts(d.payouts ?? []); setSummary(d.summary ?? null); })
+      .then(d => {
+        setPayouts(d.payouts ?? []);
+        setSummary(d.summary ?? null);
+        setAccrued(d.accrued ?? null);
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -589,6 +601,34 @@ function EarningsTab() {
           <div className="bg-white border border-slate-200 rounded-xl p-4">
             <p className="text-[11px] text-slate-400 mb-1 flex items-center gap-1"><TrendingUp className="w-3 h-3" /> All Time</p>
             <p className="text-xl font-bold text-slate-800">{fmtRupee(summary.allTime)}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Accrued (unpaid) earnings */}
+      {accrued !== null && accrued.breakdown.length > 0 && (
+        <div className={`rounded-xl border p-4 ${accrued.net > 0 ? "bg-green-50 border-green-200" : "bg-slate-50 border-slate-200"}`}>
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide">Pending Earnings</p>
+            <span className={`text-lg font-bold tabular-nums ${accrued.net > 0 ? "text-green-700" : "text-slate-600"}`}>
+              {fmtRupee(accrued.net)}
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-3 text-[11px] text-slate-500 mb-3">
+            <span>Earned: <strong className="text-slate-700">{fmtRupee(accrued.amount)}</strong></span>
+            {accrued.penaltyDeductions > 0 && (
+              <span className="text-red-600">Penalties: −<strong>{fmtRupee(accrued.penaltyDeductions)}</strong></span>
+            )}
+          </div>
+          <div className="space-y-1">
+            {accrued.breakdown.map((item, i) => (
+              <div key={i} className="flex items-center justify-between text-[11px]">
+                <span className="text-slate-600 truncate mr-2">
+                  <span className="font-mono text-slate-400">{item.srNumber}</span> · {item.description}
+                </span>
+                <span className="font-semibold text-green-700 tabular-nums shrink-0">{fmtRupee(item.amount)}</span>
+              </div>
+            ))}
           </div>
         </div>
       )}

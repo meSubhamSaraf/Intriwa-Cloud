@@ -166,14 +166,6 @@ export default function ServiceRequestDetailPage() {
   const [loading, setLoading] = useState(true);
   const [advancing, setAdvancing] = useState(false);
 
-  // Redirect mechanics to the field (limited) view
-  useEffect(() => {
-    fetch("/api/profile")
-      .then((r) => r.ok ? r.json() : null)
-      .then((p) => { if (p?.role === "MECHANIC") router.replace(`/field/${id}`); })
-      .catch(() => {});
-  }, [id, router]);
-
   // Invoice
   const [raisingInvoice, setRaisingInvoice] = useState(false);
   const [raisedInvoiceId, setRaisedInvoiceId] = useState<string | null>(null);
@@ -203,10 +195,17 @@ export default function ServiceRequestDetailPage() {
   const [savingObs, setSavingObs] = useState(false);
 
   useEffect(() => {
+    // Role check is part of the same Promise.all so loading blocks render
+    // until we know the role — mechanics never see this page's content.
     Promise.all([
+      fetch("/api/profile").then(r => r.ok ? r.json() : null),
       fetch(`/api/service-requests/${id}`).then(r => r.ok ? r.json() : null),
       fetch(`/api/service-requests/${id}/addons`).then(r => r.ok ? r.json() : []),
-    ]).then(([srData, addonData]: [SR | null, AddOn[]]) => {
+    ]).then(([profile, srData, addonData]: [{ role?: string } | null, SR | null, AddOn[]]) => {
+      if (profile?.role === "MECHANIC") {
+        router.replace(`/field/${id}`);
+        return; // keep loading=true so spinner shows until navigation completes
+      }
       setSr(srData);
       if (srData?.invoices?.length) setRaisedInvoiceId(srData.invoices[0].id);
       setAddons(addonData ?? []);
@@ -216,8 +215,9 @@ export default function ServiceRequestDetailPage() {
         prices[a.id] = sellingPrice != null ? String(sellingPrice) : "";
       }
       setAddonPrices(prices);
-    }).finally(() => setLoading(false));
-  }, [id]);
+      setLoading(false);
+    }).catch(() => setLoading(false));
+  }, [id, router]);
 
   async function loadMechanics() {
     if (mechanics.length > 0) return;
@@ -390,7 +390,7 @@ export default function ServiceRequestDetailPage() {
   const displayStatus = STATUS_DISPLAY[sr.status] ?? sr.status.toLowerCase();
   const pendingAddons = addons.filter(a => a.status === "PENDING");
   const closingBlocked = next === "CLOSED" && pendingAddons.length > 0;
-  const itemsTotal = sr.items.reduce((s, i) => s + (i.unitPrice ?? 0) * i.quantity, 0);
+  const itemsTotal = sr.items.reduce((s, i) => s + Number(i.unitPrice ?? 0) * i.quantity, 0);
   const invTotal   = (sr.inventoryUsages ?? []).reduce((s, u) => s + Number(u.total), 0);
   const total = itemsTotal + invTotal;
 
@@ -699,7 +699,7 @@ export default function ServiceRequestDetailPage() {
                     <span className="text-[12px] text-slate-500 tabular-nums">×{item.quantity}</span>
                     {item.unitPrice != null && (
                       <span className="text-[12px] font-medium text-slate-700 tabular-nums whitespace-nowrap">
-                        ₹{(item.unitPrice * item.quantity).toLocaleString("en-IN")}
+                        ₹{(Number(item.unitPrice) * item.quantity).toLocaleString("en-IN")}
                       </span>
                     )}
                     <button

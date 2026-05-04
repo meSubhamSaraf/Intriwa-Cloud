@@ -22,7 +22,6 @@ export const GET = withAuth(async (_req, { garageId }) => {
 
   const mechanic = await prisma.mechanic.findFirst({
     where: { garageId, isActive: true, OR: conditions },
-    select: { id: true },
   });
   if (!mechanic) return NextResponse.json({ error: "No mechanic profile linked" }, { status: 404 });
 
@@ -31,5 +30,66 @@ export const GET = withAuth(async (_req, { garageId }) => {
     payoutService.earningsSummary(mechanic.id),
   ]);
 
-  return NextResponse.json({ payouts, summary, mechanicId: mechanic.id });
+  // Accrued (unpaid) earnings — same logic as admin endpoint
+  const lastPayout = payouts[0] ?? null;
+  const accrualStart = lastPayout ? new Date(lastPayout.periodEnd) : new Date(0);
+
+  const paidItemIds = (
+    await prisma.mechanicPayoutItem.findMany({
+      where: { payout: { mechanicId: mechanic.id } },
+      select: { serviceItemId: true },
+    })
+  )
+    .map((r) => r.serviceItemId)
+    .filter((x): x is string => x !== null);
+
+  const accruedItems = await prisma.serviceItem.findMany({
+    where: {
+      OR: [
+        { assignedMechanicId: mechanic.id },
+        { assignedMechanicId: null, serviceRequest: { mechanicId: mechanic.id } },
+      ],
+      serviceRequest: {
+        status: "CLOSED",
+        closedAt: { gt: accrualStart },
+      },
+      NOT: { id: { in: paidItemIds } },
+    },
+    include: { serviceRequest: { select: { srNumber: true, closedAt: true } } },
+  });
+
+  let accrued = 0;
+  const accruedBreakdown = accruedItems.map((item) => {
+    let amount = 0;
+    if (mechanic.payoutConfigType === "FIXED_PER_ITEM") {
+      amount = Number(mechanic.payoutRate ?? 0);
+    } else if (mechanic.payoutConfigType === "PERCENT_OF_ITEM") {
+      amount = Number(item.total) * Number(mechanic.payoutRate ?? 0);
+    }
+    accrued += amount;
+    return {
+      srNumber: item.serviceRequest.srNumber,
+      description: item.description,
+      closedAt: item.serviceRequest.closedAt,
+      amount,
+    };
+  });
+
+  const pendingPenalties = await prisma.mechanicPenalty.findMany({
+    where: { mechanicId: mechanic.id, payoutId: null },
+    orderBy: { issuedAt: "desc" },
+  });
+  const pendingPenaltyTotal = pendingPenalties.reduce((s, p) => s + Number(p.amount), 0);
+
+  return NextResponse.json({
+    payouts,
+    summary,
+    mechanicId: mechanic.id,
+    accrued: {
+      amount: accrued,
+      penaltyDeductions: pendingPenaltyTotal,
+      net: accrued - pendingPenaltyTotal,
+      breakdown: accruedBreakdown,
+    },
+  });
 });

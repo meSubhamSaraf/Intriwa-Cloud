@@ -1154,7 +1154,7 @@ export default function MechanicDetailPage() {
                 )}
                 {apiMechanic.payoutRate != null && (
                   <div className="text-[11px] text-slate-500">
-                    Per-job rate: <span className="font-semibold text-slate-700">{apiMechanic.payoutRate}%</span>
+                    Per-job rate: <span className="font-semibold text-slate-700">{(Number(apiMechanic.payoutRate) * 100).toFixed(0)}%</span>
                   </div>
                 )}
               </div>
