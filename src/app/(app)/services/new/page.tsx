@@ -277,7 +277,7 @@ function CustomerStep({ form, setForm, allCustomers }: {
                 // Fetch mapLink separately (not in Prisma schema)
                 fetch(`/api/customers/${c.id}`)
                   .then(r => r.ok ? r.json() : null)
-                  .then(d => { if (d?.mapLink) setForm(prev => ({ ...prev, serviceMapLink: d.mapLink })); })
+                  .then(d => { if (d?.mapLink) setForm((prev: FormState) => ({ ...prev, serviceMapLink: d.mapLink })); })
                   .catch(() => {});
                 setQuery("");
               }}
@@ -1251,7 +1251,7 @@ function NewServiceRequestContent() {
             }));
             fetch(`/api/customers/${c.id}`)
               .then(r => r.ok ? r.json() : null)
-              .then(d => { if (d?.mapLink) setForm(prev => ({ ...prev, serviceMapLink: d.mapLink })); })
+              .then(d => { if (d?.mapLink) setForm((prev: FormState) => ({ ...prev, serviceMapLink: d.mapLink })); })
               .catch(() => {});
           }
         }
