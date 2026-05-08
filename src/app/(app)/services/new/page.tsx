@@ -274,11 +274,6 @@ function CustomerStep({ form, setForm, allCustomers }: {
                   serviceAddress: c.address ?? "",
                   serviceMapLink: "",
                 });
-                // Fetch mapLink separately (not in Prisma schema)
-                fetch(`/api/customers/${c.id}`)
-                  .then(r => r.ok ? r.json() : null)
-                  .then(d => { if (d?.mapLink) setForm((prev: FormState) => ({ ...prev, serviceMapLink: d.mapLink })); })
-                  .catch(() => {});
                 setQuery("");
               }}
               className={`w-full flex items-center justify-between px-3 py-2.5 hover:bg-slate-50 transition-colors text-left ${i > 0 ? "border-t border-slate-100" : ""}`}
@@ -1249,10 +1244,6 @@ function NewServiceRequestContent() {
               neighbourhood: extractNeighbourhood(c.address),
               serviceAddress: c.address ?? "",
             }));
-            fetch(`/api/customers/${c.id}`)
-              .then(r => r.ok ? r.json() : null)
-              .then(d => { if (d?.mapLink) setForm((prev: FormState) => ({ ...prev, serviceMapLink: d.mapLink })); })
-              .catch(() => {});
           }
         }
       });
@@ -1269,6 +1260,15 @@ function NewServiceRequestContent() {
         setRealMechanics(data);
       });
   }, []);
+
+  // mapLink is not in the Prisma schema — fetch it separately whenever customer changes
+  useEffect(() => {
+    if (!form.customerId) return;
+    fetch(`/api/customers/${form.customerId}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.mapLink) setForm(prev => ({ ...prev, serviceMapLink: d.mapLink })); })
+      .catch(() => {});
+  }, [form.customerId]);
 
   const { ok, reason } = canAdvance(step, form);
   const isLast = step === STEPS.length - 1;
