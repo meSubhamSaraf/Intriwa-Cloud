@@ -19,13 +19,24 @@ export class PayoutService {
     });
 
     // ── Base pay: service items assigned to this mechanic in the period ──────
+    // Covers item-level assignment (assignedMechanicId) AND SR-level assignment
+    // (serviceRequest.mechanicId) for items not individually assigned.
     const assignedItems = await prisma.serviceItem.findMany({
       where: {
-        assignedMechanicId: mechanicId,
-        serviceRequest: {
-          closedAt: { gte: periodStart, lte: periodEnd },
-          status: "CLOSED",
-        },
+        AND: [
+          {
+            OR: [
+              { assignedMechanicId: mechanicId },
+              { assignedMechanicId: null, serviceRequest: { mechanicId: mechanicId } },
+            ],
+          },
+          {
+            serviceRequest: {
+              closedAt: { gte: periodStart, lte: periodEnd },
+              status: "CLOSED",
+            },
+          },
+        ],
       },
       include: { serviceRequest: true },
     });

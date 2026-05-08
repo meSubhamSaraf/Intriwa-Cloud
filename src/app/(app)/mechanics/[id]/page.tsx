@@ -920,6 +920,7 @@ export default function MechanicDetailPage() {
   const [emailDraft, setEmailDraft] = useState("");
   const [savingEmail, setSavingEmail] = useState(false);
   const [sendingReset, setSendingReset] = useState(false);
+  const [loginCreds, setLoginCreds] = useState<{ email: string; defaultPassword: string } | null>(null);
   const [resetSent, setResetSent] = useState(false);
   const [localStatus, setLocalStatus] = useState<MechanicStatus>("free");
   const [localSkills, setLocalSkills] = useState<string[]>([]);
@@ -1028,6 +1029,19 @@ export default function MechanicDetailPage() {
     }
   }
 
+  async function showLoginCredentials() {
+    if (!apiMechanic || sendingReset) return;
+    setSendingReset(true);
+    try {
+      const res = await fetch(`/api/mechanics/${id}/create-login`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error ?? "Failed to set up login"); return; }
+      setLoginCreds(data);
+    } finally {
+      setSendingReset(false);
+    }
+  }
+
   function toggleSkill(skill: string) {
     setLocalSkills((prev) => prev.includes(skill) ? prev.filter((s) => s !== skill) : [...prev, skill]);
   }
@@ -1112,21 +1126,30 @@ export default function MechanicDetailPage() {
                       <Edit2 className="w-2.5 h-2.5" /> Edit
                     </button>
                     {apiMechanic.email && (
-                      <button
-                        onClick={sendLoginEmail}
-                        disabled={sendingReset}
-                        className={`flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-lg border transition-colors disabled:opacity-60 ${
-                          resetSent
-                            ? "bg-green-50 border-green-200 text-green-700"
-                            : "bg-brand-navy-50 border-brand-navy-200 text-brand-navy-700 hover:bg-brand-navy-100"
-                        }`}
-                      >
-                        {resetSent ? (
-                          <><CheckCircle className="w-3 h-3" /> Email sent</>
-                        ) : (
-                          <><Send className="w-3 h-3" /> {sendingReset ? "Sending…" : "Send login email"}</>
-                        )}
-                      </button>
+                      <>
+                        <button
+                          onClick={showLoginCredentials}
+                          disabled={sendingReset}
+                          className="flex items-center gap-1 text-[11px] font-medium px-2.5 py-1 rounded-lg border bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100 transition-colors disabled:opacity-60"
+                        >
+                          <Wallet className="w-3 h-3" /> Show credentials
+                        </button>
+                        <button
+                          onClick={sendLoginEmail}
+                          disabled={sendingReset}
+                          className={`flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-lg border transition-colors disabled:opacity-60 ${
+                            resetSent
+                              ? "bg-green-50 border-green-200 text-green-700"
+                              : "bg-brand-navy-50 border-brand-navy-200 text-brand-navy-700 hover:bg-brand-navy-100"
+                          }`}
+                        >
+                          {resetSent ? (
+                            <><CheckCircle className="w-3 h-3" /> Email sent</>
+                          ) : (
+                            <><Send className="w-3 h-3" /> {sendingReset ? "Sending…" : "Send login email"}</>
+                          )}
+                        </button>
+                      </>
                     )}
                     {!apiMechanic.email && (
                       <span className="text-[11px] text-amber-600 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded">
@@ -1135,6 +1158,22 @@ export default function MechanicDetailPage() {
                     )}
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* Login credentials banner */}
+            {loginCreds && (
+              <div className="mb-3 p-3 bg-green-50 border border-green-200 rounded-lg space-y-1.5">
+                <p className="text-xs font-semibold text-green-800">Login credentials — share with mechanic</p>
+                <div className="flex items-center gap-2 text-[11px]">
+                  <span className="text-slate-500 w-16 shrink-0">Email</span>
+                  <span className="font-mono text-slate-800 bg-white border border-slate-200 rounded px-2 py-0.5 select-all">{loginCreds.email}</span>
+                </div>
+                <div className="flex items-center gap-2 text-[11px]">
+                  <span className="text-slate-500 w-16 shrink-0">Password</span>
+                  <span className="font-mono text-slate-800 bg-white border border-slate-200 rounded px-2 py-0.5 select-all">{loginCreds.defaultPassword}</span>
+                </div>
+                <p className="text-[10px] text-green-700">They can change their password after first login.</p>
               </div>
             )}
 

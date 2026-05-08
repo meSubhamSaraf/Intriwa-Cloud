@@ -125,6 +125,7 @@ function AddMechanicModal({ onClose, onCreated }: { onClose: () => void; onCreat
   const [form, setForm] = useState(BLANK);
   const [saving, setSaving] = useState(false);
   const [credentials, setCredentials] = useState<{ email: string; password: string } | null>(null);
+  const [authFailed, setAuthFailed] = useState<{ mechanicId: string; name: string; email: string } | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -151,9 +152,9 @@ function AddMechanicModal({ onClose, onCreated }: { onClose: () => void; onCreat
         setCredentials({ email: created.email, password: created.defaultPassword });
         onCreated();
       } else if (created.authError && created.email) {
-        toast.warning(`${created.name} added, but login account could not be created: ${created.authError}. Use "Send login email" on their profile page.`, { duration: 8000 });
+        // Supabase account creation failed — show inline error inside modal
+        setAuthFailed({ mechanicId: created.id, name: created.name, email: created.email });
         onCreated();
-        onClose();
       } else {
         toast.success(`${created.name} added`);
         onCreated();
@@ -189,7 +190,31 @@ function AddMechanicModal({ onClose, onCreated }: { onClose: () => void; onCreat
           </div>
         )}
 
-        {!credentials && (
+        {/* Auth failure banner — login account could not be created */}
+        {authFailed && (
+          <div className="mb-4 rounded-xl bg-amber-50 border border-amber-200 p-4 space-y-3">
+            <p className="text-xs font-semibold text-amber-800">✓ Mechanic added — but login setup failed</p>
+            <p className="text-[11px] text-amber-700">
+              The Supabase auth account could not be created (service key may not be configured in Vercel).
+              Go to the mechanic profile and click <strong>"Send login email"</strong> — it will create
+              the account and send setup instructions to <strong>{authFailed.email}</strong>.
+            </p>
+            <p className="text-[10px] text-amber-600">
+              Default password would be: <code className="font-mono bg-amber-100 px-1 rounded">{authFailed.name.trim().split(/\s+/)[0].toLowerCase()}@123</code>
+            </p>
+            <div className="flex gap-2">
+              <a href={`/mechanics/${authFailed.mechanicId}`}
+                className="flex-1 h-9 flex items-center justify-center bg-amber-700 text-white text-xs font-medium rounded-lg hover:bg-amber-600">
+                Go to profile →
+              </a>
+              <button onClick={onClose} className="h-9 px-4 text-xs text-amber-700 border border-amber-300 rounded-lg hover:bg-amber-100">
+                Close
+              </button>
+            </div>
+          </div>
+        )}
+
+        {!credentials && !authFailed && (
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-xs font-medium text-slate-600 mb-1.5">Full name</label>
