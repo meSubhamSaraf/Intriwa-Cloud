@@ -16,7 +16,7 @@ import { UserAvatar } from "@/components/ui/UserAvatar";
 
 // ── Types ──────────────────────────────────────────────────────────
 
-type Customer = { id: string; name: string; phone: string; email: string | null; address: string | null };
+type Customer = { id: string; name: string; phone: string; email: string | null; address: string | null; mapLink: string | null };
 type Vehicle  = { id: string; make: string; model: string; year: number | null; regNumber: string | null; type: string; fuelType: string };
 type Mechanic = { id: string; name: string; phone: string | null };
 
@@ -77,6 +77,7 @@ type SRObservation = {
   severity: "URGENT" | "ROUTINE" | "COSMETIC";
   estimatedCost: number | null;
   status: string;
+  followUpNote: string | null;
   raisedByName: string | null;
   createdAt: string;
 };
@@ -206,6 +207,12 @@ export default function ServiceRequestDetailPage() {
   const [obsFollowUpAt, setObsFollowUpAt] = useState("");
   const [savingObs, setSavingObs] = useState(false);
   const [srObservations, setSrObservations] = useState<SRObservation[]>([]);
+
+  // Observation approval
+  const [approvingObsId, setApprovingObsId] = useState<string | null>(null);
+  const [obsApproveDate, setObsApproveDate] = useState("");
+  const [obsApproveNote, setObsApproveNote] = useState("");
+  const [savingObsApproval, setSavingObsApproval] = useState(false);
 
   // Item price editing
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
@@ -556,7 +563,19 @@ export default function ServiceRequestDetailPage() {
                 <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {fmtDateTime(sr.scheduledAt)}</span>
               )}
               {sr.customer?.address && (
-                <span className="flex items-center gap-1"><MapPin className="w-3 h-3" /> {sr.customer.address}</span>
+                <span className="flex items-center gap-1">
+                  <MapPin className="w-3 h-3" /> {sr.customer.address}
+                  {(sr.customer.mapLink || sr.customer.address) && (
+                    <a
+                      href={sr.customer.mapLink ?? `https://maps.google.com?q=${encodeURIComponent(sr.customer.address)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="ml-1 text-blue-600 hover:text-blue-800 font-medium"
+                    >
+                      Navigate →
+                    </a>
+                  )}
+                </span>
               )}
             </div>
           </div>
@@ -1038,12 +1057,119 @@ export default function ServiceRequestDetailPage() {
                           <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
                             obs.status === "BOOKED" ? "text-green-700 bg-green-50" :
                             obs.status === "DISMISSED" ? "text-slate-400 bg-slate-100" :
+                            obs.status === "FOLLOWED_UP" ? "text-violet-700 bg-violet-50" :
                             "text-blue-700 bg-blue-50"
                           }`}>{obs.status}</span>
                         </div>
                       </div>
                       {obs.estimatedCost != null && obs.estimatedCost > 0 && (
                         <p className="text-[11px] text-slate-500 mt-1">Est. ₹{Number(obs.estimatedCost).toLocaleString("en-IN")}</p>
+                      )}
+                      {obs.followUpNote && (() => {
+                        try {
+                          const fn = JSON.parse(obs.followUpNote);
+                          return (
+                            <p className="text-[11px] text-violet-600 mt-1 bg-violet-50 rounded px-2 py-1">
+                              {fn.d ? `Follow-up: ${fn.d}` : ""}{fn.n ? ` — ${fn.n}` : ""}
+                            </p>
+                          );
+                        } catch { return null; }
+                      })()}
+
+                      {/* Approve / Dismiss actions for NEW observations */}
+                      {obs.status === "NEW" && (
+                        <div className="mt-2 pt-2 border-t border-slate-100">
+                          {approvingObsId === obs.id ? (
+                            <div className="space-y-2">
+                              <div className="flex gap-2">
+                                <div className="flex-1">
+                                  <label className="block text-[10px] font-medium text-slate-500 mb-1">Follow-up date</label>
+                                  <input
+                                    type="date"
+                                    value={obsApproveDate}
+                                    onChange={e => setObsApproveDate(e.target.value)}
+                                    className="w-full h-8 px-2 text-xs border border-slate-200 rounded focus:outline-none focus:border-violet-400"
+                                  />
+                                </div>
+                                <div className="flex-1">
+                                  <label className="block text-[10px] font-medium text-slate-500 mb-1">Note (optional)</label>
+                                  <input
+                                    type="text"
+                                    value={obsApproveNote}
+                                    onChange={e => setObsApproveNote(e.target.value)}
+                                    placeholder="Add a note…"
+                                    className="w-full h-8 px-2 text-xs border border-slate-200 rounded focus:outline-none focus:border-violet-400"
+                                  />
+                                </div>
+                              </div>
+                              <div className="flex gap-2">
+                                <button
+                                  disabled={savingObsApproval || !obsApproveDate}
+                                  onClick={async () => {
+                                    setSavingObsApproval(true);
+                                    try {
+                                      const note = JSON.stringify({ d: obsApproveDate, n: obsApproveNote });
+                                      const res = await fetch(`/api/observations/${obs.id}`, {
+                                        method: "PATCH",
+                                        headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({ status: "FOLLOWED_UP", followUpNote: note }),
+                                      });
+                                      if (res.ok) {
+                                        const updated = await res.json();
+                                        setSrObservations(prev => prev.map(o => o.id === obs.id ? { ...o, ...updated } : o));
+                                        setApprovingObsId(null);
+                                        setObsApproveDate("");
+                                        setObsApproveNote("");
+                                        toast.success("Follow-up saved");
+                                      } else {
+                                        toast.error("Failed to save follow-up");
+                                      }
+                                    } finally {
+                                      setSavingObsApproval(false);
+                                    }
+                                  }}
+                                  className="flex items-center gap-1 text-[11px] font-medium text-violet-700 bg-violet-50 hover:bg-violet-100 px-2.5 py-1.5 rounded border border-violet-200 transition-colors disabled:opacity-60"
+                                >
+                                  <CheckCircle2 className="w-3 h-3" /> {savingObsApproval ? "Saving…" : "Save Follow-up"}
+                                </button>
+                                <button
+                                  onClick={() => { setApprovingObsId(null); setObsApproveDate(""); setObsApproveNote(""); }}
+                                  className="text-[11px] text-slate-500 hover:text-slate-700 px-2.5 py-1.5 rounded border border-slate-200 transition-colors"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => { setApprovingObsId(obs.id); setObsApproveDate(""); setObsApproveNote(""); }}
+                                className="flex items-center gap-1 text-[11px] font-medium text-violet-700 bg-violet-50 hover:bg-violet-100 px-2.5 py-1.5 rounded border border-violet-200 transition-colors"
+                              >
+                                <CheckCircle2 className="w-3 h-3" /> Approve
+                              </button>
+                              <button
+                                onClick={async () => {
+                                  const res = await fetch(`/api/observations/${obs.id}`, {
+                                    method: "PATCH",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ status: "DISMISSED" }),
+                                  });
+                                  if (res.ok) {
+                                    const updated = await res.json();
+                                    setSrObservations(prev => prev.map(o => o.id === obs.id ? { ...o, ...updated } : o));
+                                    toast.success("Observation dismissed");
+                                  } else {
+                                    toast.error("Failed to dismiss");
+                                  }
+                                }}
+                                className="flex items-center gap-1 text-[11px] font-medium text-slate-500 hover:text-red-600 px-2.5 py-1.5 rounded transition-colors"
+                              >
+                                <X className="w-3 h-3" /> Dismiss
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       )}
                     </div>
                   ))}

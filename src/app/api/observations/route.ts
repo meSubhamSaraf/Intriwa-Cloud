@@ -32,13 +32,30 @@ export const GET = withAuth(async (req, { garageId }) => {
 export const POST = withAuth(async (req, { garageId }) => {
   const body = await req.json();
 
-  // Encode follow-up date into followUpNote (no separate DB column needed)
+  // Encode follow-up data into followUpNote JSON (no separate DB column needed)
+  // If followUpNote is already a JSON string (e.g. from field view with img), use it directly.
+  // Otherwise, build from individual fields.
   let followUpNote: string | null = null;
-  if (body.followUpAt || body.followUpNote) {
-    const obj: Record<string, string> = {};
-    if (body.followUpAt) obj.d = String(body.followUpAt);
-    if (body.followUpNote) obj.n = String(body.followUpNote);
-    followUpNote = JSON.stringify(obj);
+  if (body.followUpNote) {
+    // Check if it's already valid JSON (pre-serialized by client)
+    try {
+      const parsed = JSON.parse(body.followUpNote);
+      // If it's an object, use it as-is (already formatted JSON)
+      if (typeof parsed === "object" && parsed !== null) {
+        // Merge with any additional fields
+        if (body.followUpAt) parsed.d = String(body.followUpAt);
+        followUpNote = JSON.stringify(parsed);
+      } else {
+        throw new Error("not object");
+      }
+    } catch {
+      // Plain string note — wrap it
+      const obj: Record<string, string> = { n: String(body.followUpNote) };
+      if (body.followUpAt) obj.d = String(body.followUpAt);
+      followUpNote = JSON.stringify(obj);
+    }
+  } else if (body.followUpAt) {
+    followUpNote = JSON.stringify({ d: String(body.followUpAt) });
   }
 
   const obs = await prisma.customerObservation.create({

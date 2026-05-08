@@ -24,7 +24,7 @@ type SR = {
   scheduledAt: string | null;
   customerId: string | null;
   vehicleId: string | null;
-  customer: { name: string; phone: string; address: string | null } | null;
+  customer: { name: string; phone: string; address: string | null; mapLink: string | null } | null;
   vehicle: { make: string; model: string; regNumber: string | null; fuelType: string } | null;
   mechanic: { id: string; name: string } | null;
   items: { id: string; description: string; quantity: number; unitPrice: number | null }[];
@@ -39,6 +39,7 @@ type ObsForm = {
   description: string;
   severity: "URGENT" | "ROUTINE" | "COSMETIC";
   estimatedCost: string;
+  imageUrl: string;
 };
 
 type UploadedPhoto = {
@@ -77,7 +78,7 @@ function fmtDateTime(iso: string) {
   });
 }
 
-const BLANK_OBS: ObsForm = { description: "", severity: "ROUTINE", estimatedCost: "" };
+const BLANK_OBS: ObsForm = { description: "", severity: "ROUTINE", estimatedCost: "", imageUrl: "" };
 
 export default function FieldSRPage() {
   const { id } = useParams() as { id: string };
@@ -184,6 +185,7 @@ export default function FieldSRPage() {
     if (!sr?.customerId) return;
     setSavingObs(true);
     try {
+      const followUpNote = obsForm.imageUrl ? JSON.stringify({ img: obsForm.imageUrl }) : null;
       const res = await fetch("/api/observations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -196,6 +198,7 @@ export default function FieldSRPage() {
           description:  obsForm.description,
           severity:     obsForm.severity,
           estimatedCost: obsForm.estimatedCost ? Number(obsForm.estimatedCost) : null,
+          followUpNote,
         }),
       });
       if (res.ok) {
@@ -291,7 +294,7 @@ export default function FieldSRPage() {
                 <p className="text-sm text-slate-700">{sr.customer.address}</p>
               </div>
               <a
-                href={`https://maps.google.com?q=${encodeURIComponent(sr.customer.address)}`}
+                href={sr.customer.mapLink ?? `https://maps.google.com?q=${encodeURIComponent(sr.customer.address)}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-1 text-xs font-medium text-brand-navy-600 hover:text-brand-navy-800 shrink-0"
@@ -534,6 +537,19 @@ export default function FieldSRPage() {
                     className="w-full h-9 px-3 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-amber-400"
                   />
                 </div>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1.5">Photo URL (optional)</label>
+                <input
+                  type="url"
+                  value={obsForm.imageUrl}
+                  onChange={e => setObsForm(f => ({ ...f, imageUrl: e.target.value }))}
+                  placeholder="https://…"
+                  className="w-full h-9 px-3 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-amber-400"
+                />
+                {obsForm.imageUrl && (
+                  <img src={obsForm.imageUrl} alt="Preview" className="mt-2 w-full max-h-32 object-cover rounded-lg border border-slate-200" onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                )}
               </div>
               <p className="text-[11px] text-slate-400">
                 The ops team will follow up with the customer. If it converts to a booking, you may earn an incentive bonus.

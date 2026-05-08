@@ -500,6 +500,22 @@ function EarningsTab({ mechanicId }: { mechanicId: string }) {
   const [summary, setSummary] = useState<EarningsSummary | null>(null);
   const [accrued, setAccrued] = useState<AccruedData | null>(null);
 
+  // Create payout form
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [createPeriodStart, setCreatePeriodStart] = useState("");
+  const [createPeriodEnd, setCreatePeriodEnd] = useState("");
+  const [calculating, setCalculating] = useState(false);
+  const [calculatedPayout, setCalculatedPayout] = useState<Payout | null>(null);
+
+  // Mark paid inline form
+  const [markingPaidId, setMarkingPaidId] = useState<string | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState("CASH");
+  const [receiptUrl, setReceiptUrl] = useState("");
+  const [savingPaid, setSavingPaid] = useState(false);
+
+  // Approve in-progress tracker
+  const [approvingId, setApprovingId] = useState<string | null>(null);
+
   useEffect(() => {
     fetch(`/api/mechanics/${mechanicId}/earnings`)
       .then(r => r.ok ? r.json() : { payouts: [], summary: null })
@@ -520,6 +536,81 @@ function EarningsTab({ mechanicId }: { mechanicId: string }) {
     CANCELLED: "text-slate-500 bg-slate-50 border-slate-200",
   };
 
+  const thisMonth = new Date().toISOString().slice(0, 7);
+  const hasActivePayoutThisMonth = payouts.some(p =>
+    (p.status === "PENDING" || p.status === "APPROVED") &&
+    p.periodStart.slice(0, 7) === thisMonth
+  );
+
+  async function calculatePayout() {
+    if (!createPeriodStart || !createPeriodEnd) return;
+    setCalculating(true);
+    try {
+      const res = await fetch("/api/payouts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mechanicId, periodStart: createPeriodStart, periodEnd: createPeriodEnd }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.error ?? "Failed to calculate payout");
+        return;
+      }
+      const created: Payout = await res.json();
+      setCalculatedPayout({ ...created, baseAmount: Number(created.baseAmount), incentiveAmount: Number(created.incentiveAmount), totalAmount: Number(created.totalAmount) });
+      setPayouts(prev => [created, ...prev]);
+      setShowCreateForm(false);
+      setCreatePeriodStart("");
+      setCreatePeriodEnd("");
+      toast.success("Payout created");
+    } finally {
+      setCalculating(false);
+    }
+  }
+
+  async function approvePayout(id: string) {
+    setApprovingId(id);
+    try {
+      const res = await fetch(`/api/payouts/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "approve" }),
+      });
+      if (res.ok) {
+        const updated: Payout = await res.json();
+        setPayouts(prev => prev.map(p => p.id === id ? { ...updated, baseAmount: Number(updated.baseAmount), incentiveAmount: Number(updated.incentiveAmount), totalAmount: Number(updated.totalAmount) } : p));
+        toast.success("Payout approved");
+      } else {
+        toast.error("Failed to approve payout");
+      }
+    } finally {
+      setApprovingId(null);
+    }
+  }
+
+  async function markPaid(id: string) {
+    setSavingPaid(true);
+    try {
+      const res = await fetch(`/api/payouts/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "mark_paid", paymentMethod, cashfreeTransferId: receiptUrl || null }),
+      });
+      if (res.ok) {
+        const updated: Payout = await res.json();
+        setPayouts(prev => prev.map(p => p.id === id ? { ...updated, baseAmount: Number(updated.baseAmount), incentiveAmount: Number(updated.incentiveAmount), totalAmount: Number(updated.totalAmount) } : p));
+        setMarkingPaidId(null);
+        setPaymentMethod("CASH");
+        setReceiptUrl("");
+        toast.success("Marked as paid");
+      } else {
+        toast.error("Failed to mark as paid");
+      }
+    } finally {
+      setSavingPaid(false);
+    }
+  }
+
   return (
     <div className="space-y-4">
       {summary && (
@@ -535,6 +626,55 @@ function EarningsTab({ mechanicId }: { mechanicId: string }) {
               <p className="text-base font-bold text-slate-800">{s.value}</p>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Create payout button */}
+      {!hasActivePayoutThisMonth && !showCreateForm && (
+        <button
+          onClick={() => setShowCreateForm(true)}
+          className="flex items-center gap-1.5 text-sm font-medium text-brand-navy-700 border border-brand-navy-200 bg-brand-navy-50 hover:bg-brand-navy-100 px-4 py-2.5 rounded-xl transition-colors"
+        >
+          <DollarSign className="w-4 h-4" /> Create Payout
+        </button>
+      )}
+
+      {/* Create payout form */}
+      {showCreateForm && (
+        <div className="bg-brand-navy-50 border border-brand-navy-200 rounded-xl p-4 space-y-3">
+          <p className="text-xs font-semibold text-brand-navy-700 uppercase tracking-wide">New Payout Period</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[10px] font-medium text-slate-500 uppercase tracking-wide mb-1">Period Start</label>
+              <input type="date" value={createPeriodStart} onChange={e => setCreatePeriodStart(e.target.value)}
+                className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-brand-navy-400 bg-white" />
+            </div>
+            <div>
+              <label className="block text-[10px] font-medium text-slate-500 uppercase tracking-wide mb-1">Period End</label>
+              <input type="date" value={createPeriodEnd} onChange={e => setCreatePeriodEnd(e.target.value)}
+                className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-brand-navy-400 bg-white" />
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={calculatePayout}
+              disabled={calculating || !createPeriodStart || !createPeriodEnd}
+              className="flex items-center gap-1.5 px-4 py-1.5 text-sm font-semibold rounded-lg bg-brand-navy-800 text-white hover:bg-brand-navy-700 disabled:opacity-60 transition-colors"
+            >
+              {calculating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <TrendingUp className="w-3.5 h-3.5" />}
+              {calculating ? "Calculating…" : "Calculate & Create"}
+            </button>
+            <button onClick={() => setShowCreateForm(false)}
+              className="px-4 py-1.5 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
+              Cancel
+            </button>
+          </div>
+          {calculatedPayout && (
+            <div className="bg-white border border-slate-200 rounded-lg p-3 text-[12px]">
+              <p className="font-semibold text-slate-700 mb-1">Calculated: {fmtRupee(calculatedPayout.totalAmount)}</p>
+              <p className="text-slate-500">Base: {fmtRupee(calculatedPayout.baseAmount)} + Incentives: {fmtRupee(calculatedPayout.incentiveAmount)}</p>
+            </div>
+          )}
         </div>
       )}
 
@@ -571,38 +711,90 @@ function EarningsTab({ mechanicId }: { mechanicId: string }) {
         </div>
       )}
 
-      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-slate-200 bg-slate-50">
-              {["Period", "Base Pay", "Incentives", "Total", "Status", "Paid On"].map(h => (
-                <th key={h} className="px-3 py-2.5 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {payouts.map(p => (
-              <tr key={p.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
-                <td className="px-3 py-2.5 text-[12px] text-slate-700 whitespace-nowrap">
+      <div className="space-y-2">
+        {payouts.map(p => (
+          <div key={p.id} className="bg-white border border-slate-200 rounded-xl p-4">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <p className="text-[12px] text-slate-600 whitespace-nowrap">
                   {fmtDate(p.periodStart)} – {fmtDate(p.periodEnd)}
-                </td>
-                <td className="px-3 py-2.5 text-[12px] text-slate-700 tabular-nums">{fmtRupee(p.baseAmount)}</td>
-                <td className="px-3 py-2.5 text-[12px] text-green-700 tabular-nums">
-                  {Number(p.incentiveAmount) > 0 ? `+${fmtRupee(p.incentiveAmount)}` : "—"}
-                </td>
-                <td className="px-3 py-2.5 text-[12px] font-bold text-slate-800 tabular-nums">{fmtRupee(p.totalAmount)}</td>
-                <td className="px-3 py-2.5">
-                  <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full border ${STATUS_COLOR[p.status] ?? ""}`}>
-                    {p.status[0] + p.status.slice(1).toLowerCase()}
-                  </span>
-                </td>
-                <td className="px-3 py-2.5 text-[12px] text-slate-500">{fmtDate(p.paidAt)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                </p>
+                <div className="flex items-center gap-3 mt-1 text-[12px]">
+                  <span className="text-slate-700">Base: <strong>{fmtRupee(p.baseAmount)}</strong></span>
+                  {Number(p.incentiveAmount) > 0 && (
+                    <span className="text-green-700">+{fmtRupee(p.incentiveAmount)}</span>
+                  )}
+                  <span className="font-bold text-slate-800">{fmtRupee(p.totalAmount)}</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full border ${STATUS_COLOR[p.status] ?? ""}`}>
+                  {p.status[0] + p.status.slice(1).toLowerCase()}
+                </span>
+                {p.paidAt && <span className="text-[11px] text-slate-400">{fmtDate(p.paidAt)}</span>}
+
+                {/* Approve button for PENDING */}
+                {p.status === "PENDING" && (
+                  <button
+                    onClick={() => approvePayout(p.id)}
+                    disabled={approvingId === p.id}
+                    className="flex items-center gap-1 text-[11px] font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded border border-blue-200 transition-colors disabled:opacity-60"
+                  >
+                    {approvingId === p.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3" />}
+                    Approve
+                  </button>
+                )}
+
+                {/* Mark Paid button for APPROVED */}
+                {p.status === "APPROVED" && markingPaidId !== p.id && (
+                  <button
+                    onClick={() => { setMarkingPaidId(p.id); setPaymentMethod("CASH"); setReceiptUrl(""); }}
+                    className="flex items-center gap-1 text-[11px] font-medium text-green-700 bg-green-50 hover:bg-green-100 px-2.5 py-1 rounded border border-green-200 transition-colors"
+                  >
+                    <DollarSign className="w-3 h-3" /> Mark Paid
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Inline Mark Paid form */}
+            {markingPaidId === p.id && (
+              <div className="mt-3 pt-3 border-t border-slate-100 space-y-2">
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[10px] font-medium text-slate-500 uppercase tracking-wide mb-1">Payment Method</label>
+                    <select value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)}
+                      className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-green-400 bg-white">
+                      {["CASH", "UPI", "BANK_TRANSFER", "CHEQUE"].map(m => (
+                        <option key={m} value={m}>{m.replace(/_/g, " ")}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-medium text-slate-500 uppercase tracking-wide mb-1">Receipt / Reference (optional)</label>
+                    <input type="text" value={receiptUrl} onChange={e => setReceiptUrl(e.target.value)}
+                      placeholder="UTR / Cheque no. / URL…"
+                      className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-green-400 bg-white" />
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => markPaid(p.id)} disabled={savingPaid}
+                    className="flex items-center gap-1.5 px-4 py-1.5 text-sm font-semibold rounded-lg bg-green-700 text-white hover:bg-green-800 disabled:opacity-60 transition-colors">
+                    {savingPaid ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5" />}
+                    {savingPaid ? "Saving…" : "Confirm Payment"}
+                  </button>
+                  <button onClick={() => setMarkingPaidId(null)}
+                    className="px-4 py-1.5 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+
         {payouts.length === 0 && (
-          <div className="py-12 text-center text-slate-400 text-sm">
+          <div className="py-12 text-center text-slate-400 text-sm bg-white border border-slate-200 rounded-xl">
             <Wallet className="w-6 h-6 mx-auto mb-2 opacity-30" />
             No payouts recorded yet
           </div>

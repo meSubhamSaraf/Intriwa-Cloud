@@ -30,7 +30,7 @@ type Vehicle = {
 
 type Customer = {
   id: string; name: string; phone: string; email: string | null;
-  address: string | null; notes: string | null; source: string | null;
+  address: string | null; mapLink: string | null; notes: string | null; source: string | null;
   createdAt: string;
   lifetimeValue: number;
   vehicles: Vehicle[];
@@ -537,10 +537,13 @@ function NotesTab({ customer }: { customer: Customer }) {
 
 // ── Customer header ───────────────────────────────────────────────
 
-function CustomerHeader({ customer, onAddressUpdated }: { customer: Customer; onAddressUpdated: (addr: string) => void }) {
+function CustomerHeader({ customer, onAddressUpdated, onMapLinkUpdated }: { customer: Customer; onAddressUpdated: (addr: string) => void; onMapLinkUpdated: (link: string) => void }) {
   const [editingAddress, setEditingAddress] = useState(false);
   const [addressDraft, setAddressDraft] = useState(customer.address ?? "");
   const [savingAddress, setSavingAddress] = useState(false);
+  const [editingMapLink, setEditingMapLink] = useState(false);
+  const [mapLinkDraft, setMapLinkDraft] = useState(customer.mapLink ?? "");
+  const [savingMapLink, setSavingMapLink] = useState(false);
 
   const neighbourhood = (() => {
     if (!customer.address) return "";
@@ -565,6 +568,23 @@ function CustomerHeader({ customer, onAddressUpdated }: { customer: Customer; on
       toast.success("Address updated");
     } else {
       toast.error("Failed to update address");
+    }
+  }
+
+  async function saveMapLink() {
+    setSavingMapLink(true);
+    const res = await fetch(`/api/customers/${customer.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mapLink: mapLinkDraft || null }),
+    });
+    setSavingMapLink(false);
+    if (res.ok) {
+      onMapLinkUpdated(mapLinkDraft);
+      setEditingMapLink(false);
+      toast.success("Map link updated");
+    } else {
+      toast.error("Failed to update map link");
     }
   }
 
@@ -615,6 +635,44 @@ function CustomerHeader({ customer, onAddressUpdated }: { customer: Customer; on
             <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded border text-slate-600 bg-slate-50 border-slate-200">
               <MapPin className="w-2.5 h-2.5 text-slate-400" />{neighbourhood}
             </span>
+          )}
+
+          {/* Google Maps Link */}
+          {editingMapLink ? (
+            <div className="flex items-center gap-2 mt-1.5">
+              <input
+                autoFocus
+                value={mapLinkDraft}
+                onChange={e => setMapLinkDraft(e.target.value)}
+                placeholder="Google Maps link…"
+                className="flex-1 h-7 px-2 text-xs border border-brand-navy-300 rounded focus:outline-none focus:ring-1 focus:ring-brand-navy-400"
+              />
+              <button onClick={saveMapLink} disabled={savingMapLink}
+                className="px-2.5 h-7 text-xs font-medium bg-brand-navy-800 text-white rounded hover:bg-brand-navy-700 disabled:opacity-50">
+                {savingMapLink ? "…" : "Save"}
+              </button>
+              <button onClick={() => { setEditingMapLink(false); setMapLinkDraft(customer.mapLink ?? ""); }}
+                className="w-7 h-7 flex items-center justify-center text-slate-400 hover:text-slate-600">
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 mt-1.5">
+              <button
+                onClick={() => { setMapLinkDraft(customer.mapLink ?? ""); setEditingMapLink(true); }}
+                className="flex items-start gap-1 text-[11px] text-slate-400 hover:text-brand-navy-600 group"
+              >
+                <MapPin className="w-3 h-3 mt-0.5 shrink-0 text-green-500" />
+                <span>{customer.mapLink ? "Google Maps link set" : <span className="italic">Add Google Maps link</span>}</span>
+                <Edit2 className="w-3 h-3 ml-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+              </button>
+              {customer.mapLink && (
+                <a href={customer.mapLink} target="_blank" rel="noopener noreferrer"
+                  className="text-[10px] font-medium text-green-700 bg-green-50 hover:bg-green-100 px-2 py-0.5 rounded border border-green-200 transition-colors">
+                  Open Maps
+                </a>
+              )}
+            </div>
           )}
         </div>
 
@@ -669,7 +727,7 @@ export default function CustomerProfilePage() {
         <span className="text-[11px] text-slate-600 font-medium">{customer.name}</span>
       </div>
 
-      <CustomerHeader customer={customer} onAddressUpdated={(addr) => setCustomer(c => c ? { ...c, address: addr || null } : c)} />
+      <CustomerHeader customer={customer} onAddressUpdated={(addr) => setCustomer(c => c ? { ...c, address: addr || null } : c)} onMapLinkUpdated={(link) => setCustomer(c => c ? { ...c, mapLink: link || null } : c)} />
 
       <div className="bg-white border-b border-slate-200 px-5 shrink-0">
         <div className="flex">

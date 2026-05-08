@@ -1334,6 +1334,19 @@ function NewServiceRequestContent() {
           })
         );
       }
+      for (const part of form.parts) {
+        itemPromises.push(
+          fetch(`/api/service-requests/${sr.id}/items`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              description: part.name,
+              unitPrice: part.unitPrice,
+              quantity: part.qty,
+            }),
+          })
+        );
+      }
       await Promise.allSettled(itemPromises);
 
       toast.success(`Service request ${sr.srNumber} created`);

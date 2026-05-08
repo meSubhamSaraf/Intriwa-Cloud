@@ -44,7 +44,7 @@ export class ServiceRequestService {
   }
 
   async getById(id: string) {
-    return prisma.serviceRequest.findUnique({
+    const sr = await prisma.serviceRequest.findUnique({
       where: { id },
       include: {
         customer: true,
@@ -59,6 +59,21 @@ export class ServiceRequestService {
         invoices: true,
       },
     });
+    if (!sr) return null;
+    return {
+      ...sr,
+      items: sr.items.map(i => ({
+        ...i,
+        unitPrice: Number(i.unitPrice),
+        total: Number(i.total),
+      })),
+      inventoryUsages: sr.inventoryUsages.map(u => ({
+        ...u,
+        quantity: Number(u.quantity),
+        unitPrice: Number(u.unitPrice),
+        total: Number(u.total),
+      })),
+    };
   }
 
   async create(input: CreateSRInput): Promise<ServiceRequest> {
