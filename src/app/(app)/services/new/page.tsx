@@ -77,6 +77,8 @@ interface FormState {
   mechanicId: string;
   notes: string;
   neighbourhood: string;
+  serviceAddress: string;
+  serviceMapLink: string;
   useSplitAssignment: boolean;
   groupMechanics: Record<string, string>;
 }
@@ -103,6 +105,8 @@ const INITIAL: FormState = {
   mechanicId: "",
   notes: "",
   neighbourhood: "",
+  serviceAddress: "",
+  serviceMapLink: "",
   useSplitAssignment: false,
   groupMechanics: {},
 };
@@ -267,7 +271,14 @@ function CustomerStep({ form, setForm, allCustomers }: {
                   customerVehicles: c.vehicles,
                   vehicleId: "",
                   neighbourhood: extractNeighbourhood(c.address),
+                  serviceAddress: c.address ?? "",
+                  serviceMapLink: "",
                 });
+                // Fetch mapLink separately (not in Prisma schema)
+                fetch(`/api/customers/${c.id}`)
+                  .then(r => r.ok ? r.json() : null)
+                  .then(d => { if (d?.mapLink) setForm(prev => ({ ...prev, serviceMapLink: d.mapLink })); })
+                  .catch(() => {});
                 setQuery("");
               }}
               className={`w-full flex items-center justify-between px-3 py-2.5 hover:bg-slate-50 transition-colors text-left ${i > 0 ? "border-t border-slate-100" : ""}`}
@@ -824,20 +835,42 @@ function ScheduleStep({ form, setForm }: { form: FormState; setForm: (f: FormSta
       )}
 
       {form.serviceType === "doorstep" && (
-        <div className="max-w-xs">
-          <label className="block text-xs font-medium text-slate-600 mb-1">
-            Estimated travel time (min)
-          </label>
-          <div className="flex items-center gap-2">
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Service address</label>
             <input
-              type="number"
-              min="5"
-              step="5"
-              value={form.travelTimeMinutes}
-              onChange={(e) => setForm({ ...form, travelTimeMinutes: Number(e.target.value) })}
-              className={inputCls + " w-24"}
+              type="text"
+              value={form.serviceAddress}
+              onChange={(e) => setForm({ ...form, serviceAddress: e.target.value })}
+              placeholder="e.g. 12 MG Road, Bangalore 560001"
+              className={inputCls}
             />
-            <span className="text-[11px] text-slate-400">minutes one-way — shown as buffer in calendar</span>
+            <p className="text-[11px] text-slate-400 mt-1">Pre-filled from customer profile — edit if location differs for this visit.</p>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Google Maps link <span className="text-slate-400 font-normal">(optional)</span></label>
+            <input
+              type="url"
+              value={form.serviceMapLink}
+              onChange={(e) => setForm({ ...form, serviceMapLink: e.target.value })}
+              placeholder="https://maps.google.com/…"
+              className={inputCls}
+            />
+            <p className="text-[11px] text-slate-400 mt-1">Mechanic taps this to navigate directly. Saved to customer profile.</p>
+          </div>
+          <div className="max-w-xs">
+            <label className="block text-xs font-medium text-slate-600 mb-1">Estimated travel time (min)</label>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min="5"
+                step="5"
+                value={form.travelTimeMinutes}
+                onChange={(e) => setForm({ ...form, travelTimeMinutes: Number(e.target.value) })}
+                className={inputCls + " w-24"}
+              />
+              <span className="text-[11px] text-slate-400">minutes one-way</span>
+            </div>
           </div>
         </div>
       )}
@@ -1214,7 +1247,12 @@ function NewServiceRequestContent() {
               customerVehicles: c.vehicles,
               vehicleId: vehicleId && c.vehicles.some((v) => v.id === vehicleId) ? vehicleId : prev.vehicleId,
               neighbourhood: extractNeighbourhood(c.address),
+              serviceAddress: c.address ?? "",
             }));
+            fetch(`/api/customers/${c.id}`)
+              .then(r => r.ok ? r.json() : null)
+              .then(d => { if (d?.mapLink) setForm(prev => ({ ...prev, serviceMapLink: d.mapLink })); })
+              .catch(() => {});
           }
         }
       });
@@ -1348,6 +1386,20 @@ function NewServiceRequestContent() {
         );
       }
       await Promise.allSettled(itemPromises);
+
+      // Save address / mapLink back to customer profile
+      if (form.customerId && form.serviceType === "doorstep") {
+        const patch: Record<string, string | null> = {};
+        if (form.serviceAddress) patch.address = form.serviceAddress;
+        if (form.serviceMapLink) patch.mapLink = form.serviceMapLink;
+        if (Object.keys(patch).length > 0) {
+          fetch(`/api/customers/${form.customerId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(patch),
+          }).catch(() => {});
+        }
+      }
 
       toast.success(`Service request ${sr.srNumber} created`);
       router.push(`/services/${sr.id}`);

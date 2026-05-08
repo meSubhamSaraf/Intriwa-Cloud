@@ -89,6 +89,7 @@ export default function FieldSRPage() {
   const [showObsForm, setShowObsForm] = useState(false);
   const [obsForm, setObsForm] = useState<ObsForm>(BLANK_OBS);
   const [savingObs, setSavingObs] = useState(false);
+  const [customerMapLink, setCustomerMapLink] = useState<string | null>(null);
 
   // Photo state
   const [photos, setPhotos] = useState<UploadedPhoto[]>([]);
@@ -98,7 +99,16 @@ export default function FieldSRPage() {
   useEffect(() => {
     fetch(`/api/service-requests/${id}`)
       .then(r => r.ok ? r.json() : null)
-      .then(setSr)
+      .then((srData: SR | null) => {
+        setSr(srData);
+        // mapLink lives outside the Prisma schema — fetch it separately
+        if (srData?.customerId) {
+          fetch(`/api/customers/${srData.customerId}`)
+            .then(r => r.ok ? r.json() : null)
+            .then(d => { if (d?.mapLink) setCustomerMapLink(d.mapLink); })
+            .catch(() => {});
+        }
+      })
       .finally(() => setLoading(false));
   }, [id]);
 
@@ -287,14 +297,14 @@ export default function FieldSRPage() {
               <Phone className="w-4 h-4" />
             </a>
           </div>
-          {sr.customer.address && (
+          {(sr.customer.address || customerMapLink) && (
             <div className="flex items-start gap-2.5">
               <MapPin className="w-4 h-4 text-slate-400 mt-0.5 shrink-0" />
               <div className="flex-1">
-                <p className="text-sm text-slate-700">{sr.customer.address}</p>
+                {sr.customer.address && <p className="text-sm text-slate-700">{sr.customer.address}</p>}
               </div>
               <a
-                href={sr.customer.mapLink ?? `https://maps.google.com?q=${encodeURIComponent(sr.customer.address)}`}
+                href={customerMapLink ?? `https://maps.google.com?q=${encodeURIComponent(sr.customer.address ?? "")}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-1 text-xs font-medium text-brand-navy-600 hover:text-brand-navy-800 shrink-0"
