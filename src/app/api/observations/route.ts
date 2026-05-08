@@ -8,12 +8,14 @@ import { prisma } from "@/lib/connectors/prisma";
 export const GET = withAuth(async (req, { garageId }) => {
   const { searchParams } = new URL(req.url);
   const customerId = searchParams.get("customerId") ?? undefined;
-  const status     = searchParams.get("status") ?? undefined;
+  const srId       = searchParams.get("srId")       ?? undefined;
+  const status     = searchParams.get("status")     ?? undefined;
 
   const observations = await prisma.customerObservation.findMany({
     where: {
       garageId,
       ...(customerId ? { customerId } : {}),
+      ...(srId       ? { srId }       : {}),
       ...(status     ? { status: status as never } : {}),
     },
     include: {

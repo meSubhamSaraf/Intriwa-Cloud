@@ -23,6 +23,7 @@ type Vehicle = {
   id: string; make: string; model: string; year: number | null;
   regNumber: string | null; type: string; fuelType: string; color: string | null;
   pucExpiry: string | null; insuranceExpiry: string | null;
+  lifetimeSpend: number;
   customer: { id: string; name: string; phone: string } | null;
   serviceRequests: SR[];
 };
@@ -222,10 +223,11 @@ export default function VehicleDetailPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3 mt-4 pt-4 border-t border-slate-100">
+        <div className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-slate-100">
           {[
             { label: "Total Services", value: `${vSRs.length} (${completedCount} done)`, icon: Wrench },
             { label: "Owner", value: owner?.name ?? "—", icon: User },
+            { label: "Lifetime Spend", value: vehicle.lifetimeSpend > 0 ? `₹${vehicle.lifetimeSpend.toLocaleString("en-IN")}` : "—", icon: FileText },
           ].map(({ label, value, icon: Icon }) => (
             <div key={label} className="flex items-center gap-2">
               <div className="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center shrink-0">

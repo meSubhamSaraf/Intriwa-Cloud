@@ -275,7 +275,9 @@ export default function FieldSRPage() {
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-slate-800">{sr.customer.name}</p>
-              <p className="text-xs text-slate-500 tabular-nums">{sr.customer.phone}</p>
+              <p className="text-xs text-slate-500 tabular-nums">
+                {sr.customer.phone.replace(/^(\d+)(\d{4})$/, (_, a, b) => "X".repeat(a.length) + b)}
+              </p>
             </div>
             <a href={`tel:${sr.customer.phone}`}
               className="w-9 h-9 flex items-center justify-center rounded-full bg-green-100 text-green-700 hover:bg-green-200 transition-colors">

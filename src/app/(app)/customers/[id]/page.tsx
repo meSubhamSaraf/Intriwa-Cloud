@@ -32,6 +32,7 @@ type Customer = {
   id: string; name: string; phone: string; email: string | null;
   address: string | null; notes: string | null; source: string | null;
   createdAt: string;
+  lifetimeValue: number;
   vehicles: Vehicle[];
 };
 
@@ -127,20 +128,37 @@ function OverviewTab({ customer }: { customer: Customer }) {
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-3 gap-3">
-        {[
-          { label: "Services", value: completedSRs.length, icon: Wrench, color: "text-brand-navy-600" },
-          { label: "Vehicles", value: customer.vehicles.length, icon: Car, color: "text-blue-600" },
-          { label: "Member since", value: new Date(customer.createdAt).getFullYear(), icon: Calendar, color: "text-violet-600" },
-        ].map((stat) => (
-          <div key={stat.label} className="bg-white border border-slate-200 rounded-lg p-3">
-            <div className="flex items-center gap-1.5 mb-1.5">
-              <stat.icon className={`w-3.5 h-3.5 ${stat.color}`} />
-              <span className="text-[10px] text-slate-500 font-medium uppercase tracking-wide">{stat.label}</span>
-            </div>
-            <p className="text-xl font-bold text-slate-800 tabular-nums">{stat.value}</p>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="bg-white border border-slate-200 rounded-lg p-3">
+          <div className="flex items-center gap-1.5 mb-1.5">
+            <Wrench className="w-3.5 h-3.5 text-brand-navy-600" />
+            <span className="text-[10px] text-slate-500 font-medium uppercase tracking-wide">Services</span>
           </div>
-        ))}
+          <p className="text-xl font-bold text-slate-800 tabular-nums">{completedSRs.length}</p>
+        </div>
+        <div className="bg-white border border-slate-200 rounded-lg p-3">
+          <div className="flex items-center gap-1.5 mb-1.5">
+            <Car className="w-3.5 h-3.5 text-blue-600" />
+            <span className="text-[10px] text-slate-500 font-medium uppercase tracking-wide">Vehicles</span>
+          </div>
+          <p className="text-xl font-bold text-slate-800 tabular-nums">{customer.vehicles.length}</p>
+        </div>
+        <div className="bg-white border border-slate-200 rounded-lg p-3">
+          <div className="flex items-center gap-1.5 mb-1.5">
+            <TrendingUp className="w-3.5 h-3.5 text-green-600" />
+            <span className="text-[10px] text-slate-500 font-medium uppercase tracking-wide">Lifetime Value</span>
+          </div>
+          <p className="text-xl font-bold text-green-700 tabular-nums">
+            {customer.lifetimeValue > 0 ? `₹${customer.lifetimeValue.toLocaleString("en-IN")}` : "—"}
+          </p>
+        </div>
+        <div className="bg-white border border-slate-200 rounded-lg p-3">
+          <div className="flex items-center gap-1.5 mb-1.5">
+            <Calendar className="w-3.5 h-3.5 text-violet-600" />
+            <span className="text-[10px] text-slate-500 font-medium uppercase tracking-wide">Member since</span>
+          </div>
+          <p className="text-xl font-bold text-slate-800 tabular-nums">{new Date(customer.createdAt).getFullYear()}</p>
+        </div>
       </div>
 
       <div>
@@ -519,7 +537,11 @@ function NotesTab({ customer }: { customer: Customer }) {
 
 // ── Customer header ───────────────────────────────────────────────
 
-function CustomerHeader({ customer }: { customer: Customer }) {
+function CustomerHeader({ customer, onAddressUpdated }: { customer: Customer; onAddressUpdated: (addr: string) => void }) {
+  const [editingAddress, setEditingAddress] = useState(false);
+  const [addressDraft, setAddressDraft] = useState(customer.address ?? "");
+  const [savingAddress, setSavingAddress] = useState(false);
+
   const neighbourhood = (() => {
     if (!customer.address) return "";
     const areas = ["Whitefield","Marathahalli","Indiranagar","Koramangala","JP Nagar","HSR Layout",
@@ -528,6 +550,23 @@ function CustomerHeader({ customer }: { customer: Customer }) {
     const lower = customer.address.toLowerCase();
     return areas.find((a) => lower.includes(a.toLowerCase())) ?? "";
   })();
+
+  async function saveAddress() {
+    setSavingAddress(true);
+    const res = await fetch(`/api/customers/${customer.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ address: addressDraft || null }),
+    });
+    setSavingAddress(false);
+    if (res.ok) {
+      onAddressUpdated(addressDraft);
+      setEditingAddress(false);
+      toast.success("Address updated");
+    } else {
+      toast.error("Failed to update address");
+    }
+  }
 
   return (
     <div className="bg-white border-b border-slate-200 px-5 py-4 shrink-0">
@@ -544,13 +583,35 @@ function CustomerHeader({ customer }: { customer: Customer }) {
             <span className="tabular-nums">{customer.phone}</span>
             {customer.email && <span>{customer.email}</span>}
           </div>
-          {customer.address && (
-            <div className="flex items-start gap-1 text-[11px] text-slate-400 mb-1.5">
-              <MapPin className="w-3 h-3 mt-0.5 shrink-0" />
-              <span>{customer.address}</span>
+          {editingAddress ? (
+            <div className="flex items-center gap-2 mb-1.5">
+              <input
+                autoFocus
+                value={addressDraft}
+                onChange={e => setAddressDraft(e.target.value)}
+                placeholder="Full address…"
+                className="flex-1 h-7 px-2 text-xs border border-brand-navy-300 rounded focus:outline-none focus:ring-1 focus:ring-brand-navy-400"
+              />
+              <button onClick={saveAddress} disabled={savingAddress}
+                className="px-2.5 h-7 text-xs font-medium bg-brand-navy-800 text-white rounded hover:bg-brand-navy-700 disabled:opacity-50">
+                {savingAddress ? "…" : "Save"}
+              </button>
+              <button onClick={() => { setEditingAddress(false); setAddressDraft(customer.address ?? ""); }}
+                className="w-7 h-7 flex items-center justify-center text-slate-400 hover:text-slate-600">
+                <X className="w-3.5 h-3.5" />
+              </button>
             </div>
+          ) : (
+            <button
+              onClick={() => { setAddressDraft(customer.address ?? ""); setEditingAddress(true); }}
+              className="flex items-start gap-1 text-[11px] text-slate-400 hover:text-brand-navy-600 mb-1.5 group"
+            >
+              <MapPin className="w-3 h-3 mt-0.5 shrink-0" />
+              <span>{customer.address ?? <span className="italic">Add address</span>}</span>
+              <Edit2 className="w-3 h-3 ml-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+            </button>
           )}
-          {neighbourhood && (
+          {neighbourhood && !editingAddress && (
             <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded border text-slate-600 bg-slate-50 border-slate-200">
               <MapPin className="w-2.5 h-2.5 text-slate-400" />{neighbourhood}
             </span>
@@ -608,7 +669,7 @@ export default function CustomerProfilePage() {
         <span className="text-[11px] text-slate-600 font-medium">{customer.name}</span>
       </div>
 
-      <CustomerHeader customer={customer} />
+      <CustomerHeader customer={customer} onAddressUpdated={(addr) => setCustomer(c => c ? { ...c, address: addr || null } : c)} />
 
       <div className="bg-white border-b border-slate-200 px-5 shrink-0">
         <div className="flex">

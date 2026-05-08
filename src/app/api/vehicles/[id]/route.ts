@@ -6,15 +6,24 @@ import { withAuthParams } from "@/app/api/_helpers/auth";
 import { prisma } from "@/lib/connectors/prisma";
 
 export const GET = withAuthParams<{ id: string }>(async (_req, _ctx, { id }) => {
-  const vehicle = await prisma.vehicle.findUnique({
-    where: { id },
-    include: {
-      customer: true,
-      serviceRequests: { orderBy: { createdAt: "desc" }, take: 20 },
-    },
-  });
+  const [vehicle, ltv] = await Promise.all([
+    prisma.vehicle.findUnique({
+      where: { id },
+      include: {
+        customer: true,
+        serviceRequests: { orderBy: { createdAt: "desc" }, take: 20 },
+      },
+    }),
+    prisma.invoice.aggregate({
+      _sum: { total: true },
+      where: {
+        serviceRequest: { vehicleId: id },
+        status: { in: ["SENT", "PAID"] },
+      },
+    }),
+  ]);
   if (!vehicle) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  return NextResponse.json(vehicle);
+  return NextResponse.json({ ...vehicle, lifetimeSpend: Number(ltv._sum.total ?? 0) });
 });
 
 export const PATCH = withAuthParams<{ id: string }>(async (req, _ctx, { id }) => {

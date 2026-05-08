@@ -71,6 +71,16 @@ type AddOn = {
 type MechanicOption = { id: string; name: string; status: string };
 type InventoryOption = { id: string; name: string; stockQty: number; unitPrice: number };
 
+type SRObservation = {
+  id: string;
+  description: string;
+  severity: "URGENT" | "ROUTINE" | "COSMETIC";
+  estimatedCost: number | null;
+  status: string;
+  raisedByName: string | null;
+  createdAt: string;
+};
+
 // ── Helpers ────────────────────────────────────────────────────────
 
 function parseAddonNotes(notes: string | null): { sellingPrice?: number | null; quantity?: number } {
@@ -195,10 +205,18 @@ export default function ServiceRequestDetailPage() {
   const [obsEstCost, setObsEstCost] = useState("");
   const [obsFollowUpAt, setObsFollowUpAt] = useState("");
   const [savingObs, setSavingObs] = useState(false);
+  const [srObservations, setSrObservations] = useState<SRObservation[]>([]);
 
   // Item price editing
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [editingPrice, setEditingPrice] = useState("");
+
+  // Add custom service item
+  const [showAddItemForm, setShowAddItemForm] = useState(false);
+  const [newItemDesc, setNewItemDesc] = useState("");
+  const [newItemPrice, setNewItemPrice] = useState("");
+  const [newItemQty, setNewItemQty] = useState("1");
+  const [addingItem, setAddingItem] = useState(false);
 
   // Pre-invoice discount
   const [invoiceDiscount, setInvoiceDiscount] = useState("");
@@ -210,7 +228,8 @@ export default function ServiceRequestDetailPage() {
       fetch("/api/profile").then(r => r.ok ? r.json() : null),
       fetch(`/api/service-requests/${id}`).then(r => r.ok ? r.json() : null),
       fetch(`/api/service-requests/${id}/addons`).then(r => r.ok ? r.json() : []),
-    ]).then(([profile, srData, addonData]: [{ role?: string } | null, SR | null, AddOn[]]) => {
+      fetch(`/api/observations?srId=${id}`).then(r => r.ok ? r.json() : []),
+    ]).then(([profile, srData, addonData, obsData]: [{ role?: string } | null, SR | null, AddOn[], SRObservation[]]) => {
       if (profile?.role === "MECHANIC") {
         router.replace(`/field/${id}`);
         return; // keep loading=true so spinner shows until navigation completes
@@ -218,6 +237,7 @@ export default function ServiceRequestDetailPage() {
       setSr(srData);
       if (srData?.invoices?.length) setRaisedInvoiceId(srData.invoices[0].id);
       setAddons(addonData ?? []);
+      setSrObservations(obsData ?? []);
       const prices: Record<string, string> = {};
       for (const a of addonData ?? []) {
         const { sellingPrice } = parseAddonNotes(a.notes);
@@ -361,6 +381,33 @@ export default function ServiceRequestDetailPage() {
     }
   }
 
+  async function addServiceItem() {
+    if (!newItemDesc.trim() || !newItemPrice) return;
+    setAddingItem(true);
+    try {
+      const res = await fetch(`/api/service-requests/${id}/items`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          description: newItemDesc.trim(),
+          unitPrice: Number(newItemPrice),
+          quantity: Number(newItemQty) || 1,
+        }),
+      });
+      if (res.ok) {
+        const item = await res.json();
+        setSr(prev => prev ? { ...prev, items: [...prev.items, { ...item, unitPrice: Number(item.unitPrice), total: Number(item.total) }] } : prev);
+        setNewItemDesc(""); setNewItemPrice(""); setNewItemQty("1");
+        setShowAddItemForm(false);
+        toast.success("Item added");
+      } else {
+        toast.error("Failed to add item");
+      }
+    } finally {
+      setAddingItem(false);
+    }
+  }
+
   async function submitObservation(e: React.FormEvent) {
     e.preventDefault();
     if (!sr?.customer) return;
@@ -382,6 +429,8 @@ export default function ServiceRequestDetailPage() {
         }),
       });
       if (res.ok) {
+        const newObs: SRObservation = await res.json();
+        setSrObservations(prev => [newObs, ...prev]);
         toast.success(obsFollowUpAt ? "Observation flagged — follow-up reminder set" : "Observation flagged — ops team will follow up with the customer");
         setShowObsForm(false);
         setObsDesc("");
@@ -725,10 +774,16 @@ export default function ServiceRequestDetailPage() {
               <div className="flex items-center gap-3">
                 {total > 0 && <span className="text-sm font-semibold text-slate-800">₹{total.toLocaleString("en-IN")}</span>}
                 <button
+                  onClick={() => setShowAddItemForm(true)}
+                  className="flex items-center gap-1 text-[10px] font-medium text-brand-navy-600 hover:text-brand-navy-800"
+                >
+                  <Plus className="w-3 h-3" /> Add item
+                </button>
+                <button
                   onClick={() => { loadInventory(); setShowInvPicker(true); }}
                   className="flex items-center gap-1 text-[10px] font-medium text-brand-navy-600 hover:text-brand-navy-800"
                 >
-                  <Package className="w-3 h-3" /> Add from inventory
+                  <Package className="w-3 h-3" /> Inventory
                 </button>
               </div>
             </div>
@@ -807,6 +862,42 @@ export default function ServiceRequestDetailPage() {
                     </span>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {/* Inline add-item form */}
+            {showAddItemForm && (
+              <div className="px-4 py-3 border-t border-slate-100 bg-slate-50 space-y-2">
+                <input
+                  autoFocus
+                  type="text"
+                  placeholder="Item description…"
+                  value={newItemDesc}
+                  onChange={e => setNewItemDesc(e.target.value)}
+                  className="w-full h-8 px-2.5 text-sm border border-slate-200 rounded focus:outline-none focus:border-brand-navy-400"
+                />
+                <div className="flex gap-2">
+                  <input
+                    type="number" min={0} placeholder="Unit price (₹)"
+                    value={newItemPrice}
+                    onChange={e => setNewItemPrice(e.target.value)}
+                    className="flex-1 h-8 px-2.5 text-sm border border-slate-200 rounded focus:outline-none focus:border-brand-navy-400"
+                  />
+                  <input
+                    type="number" min={1} placeholder="Qty"
+                    value={newItemQty}
+                    onChange={e => setNewItemQty(e.target.value)}
+                    className="w-16 h-8 px-2.5 text-sm border border-slate-200 rounded focus:outline-none focus:border-brand-navy-400"
+                  />
+                  <button onClick={addServiceItem} disabled={addingItem || !newItemDesc.trim() || !newItemPrice}
+                    className="px-3 h-8 text-xs font-medium bg-brand-navy-800 text-white rounded hover:bg-brand-navy-700 disabled:opacity-50">
+                    {addingItem ? "…" : "Add"}
+                  </button>
+                  <button onClick={() => { setShowAddItemForm(false); setNewItemDesc(""); setNewItemPrice(""); setNewItemQty("1"); }}
+                    className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-slate-600">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -913,19 +1004,53 @@ export default function ServiceRequestDetailPage() {
             </div>
           )}
 
-          {/* Flag Observation */}
+          {/* Observations */}
           {sr.customer && (
-            <div className="bg-white border border-slate-200 rounded-lg p-4">
-              <div className="flex items-center justify-between mb-1">
-                <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Observations</p>
+            <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+                <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">
+                  Observations {srObservations.length > 0 && <span className="ml-1 text-amber-600">({srObservations.length})</span>}
+                </p>
+                <button
+                  onClick={() => setShowObsForm(true)}
+                  className="flex items-center gap-1 text-[10px] font-medium text-amber-700 hover:text-amber-900"
+                >
+                  <Eye className="w-3 h-3" /> Flag new
+                </button>
               </div>
-              <p className="text-xs text-slate-400 mb-3">Noticed something else on this vehicle? Flag it for the ops team to follow up with the customer.</p>
-              <button
-                onClick={() => setShowObsForm(true)}
-                className="w-full h-9 flex items-center justify-center gap-1.5 border border-dashed border-amber-300 text-amber-700 text-sm font-medium rounded-lg hover:bg-amber-50 transition-colors"
-              >
-                <Eye className="w-4 h-4" /> Flag an observation
-              </button>
+              {srObservations.length > 0 ? (
+                <div className="divide-y divide-slate-100">
+                  {srObservations.map(obs => (
+                    <div key={obs.id} className="px-4 py-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-slate-800">{obs.description}</p>
+                          {obs.raisedByName && (
+                            <p className="text-[10px] text-slate-400 mt-0.5">Flagged by {obs.raisedByName}</p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${
+                            obs.severity === "URGENT" ? "text-red-700 bg-red-50 border-red-200" :
+                            obs.severity === "COSMETIC" ? "text-slate-600 bg-slate-100 border-slate-200" :
+                            "text-amber-700 bg-amber-50 border-amber-200"
+                          }`}>{obs.severity}</span>
+                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                            obs.status === "BOOKED" ? "text-green-700 bg-green-50" :
+                            obs.status === "DISMISSED" ? "text-slate-400 bg-slate-100" :
+                            "text-blue-700 bg-blue-50"
+                          }`}>{obs.status}</span>
+                        </div>
+                      </div>
+                      {obs.estimatedCost != null && obs.estimatedCost > 0 && (
+                        <p className="text-[11px] text-slate-500 mt-1">Est. ₹{Number(obs.estimatedCost).toLocaleString("en-IN")}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="px-4 py-4 text-[12px] text-slate-400">No observations flagged for this job yet.</div>
+              )}
             </div>
           )}
 
