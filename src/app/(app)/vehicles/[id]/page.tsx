@@ -273,7 +273,7 @@ export default function VehicleDetailPage() {
                     <StatusBadge status={STATUS_DISPLAY[sr.status] ?? sr.status.toLowerCase()} />
                     {sr.locationType && (
                       <span className="text-[10px] font-medium px-1.5 py-0.5 rounded border text-slate-600 bg-slate-50 border-slate-200">
-                        {sr.locationType === "FIELD" ? "Doorstep" : sr.locationType === "SOCIETY" ? "Society" : "Garage"}
+                        {sr.locationType === "FIELD" ? "Intrapremise" : sr.locationType === "SOCIETY" ? "Society" : "OPC"}
                       </span>
                     )}
                   </div>

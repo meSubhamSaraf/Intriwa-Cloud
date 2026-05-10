@@ -462,6 +462,7 @@ function IssueStep({ form, setForm }: { form: FormState; setForm: (f: FormState)
         <div className="grid grid-cols-2 gap-3">
           {(["doorstep", "garage"] as const).map((t) => {
             const active = form.serviceType === t;
+            const TYPE_LABELS: Record<string, string> = { doorstep: "Intrapremise", garage: "OPC" };
             return (
               <button
                 key={t}
@@ -469,9 +470,9 @@ function IssueStep({ form, setForm }: { form: FormState; setForm: (f: FormState)
                 onClick={() => setForm({ ...form, serviceType: t })}
                 className={`p-3 rounded-lg border text-left transition-colors ${active ? "bg-brand-navy-50 border-brand-navy-400" : "bg-white border-slate-200 hover:border-slate-300"}`}
               >
-                <p className={`text-sm font-semibold capitalize ${active ? "text-brand-navy-800" : "text-slate-700"}`}>{t}</p>
+                <p className={`text-sm font-semibold ${active ? "text-brand-navy-800" : "text-slate-700"}`}>{TYPE_LABELS[t]}</p>
                 <p className="text-[11px] text-slate-500 mt-0.5">
-                  {t === "doorstep" ? "Mechanic comes to customer's location" : "Customer drops car at our garage"}
+                  {t === "doorstep" ? "Mechanic comes to customer's location" : "Customer drops car at our OPC"}
                 </p>
               </button>
             );
@@ -1076,7 +1077,7 @@ function ReviewStep({ form, setForm, catalogue, realMechanics }: { form: FormSta
           value={vehicle ? `${vehicle.make} ${vehicle.model}` : form.newVehicle ? `${form.newVehicle.make} ${form.newVehicle.model} (new)` : "—"}
           sub={vehicle?.regNumber ?? undefined}
         />
-        <InfoCard label="Service type" value={form.serviceType === "doorstep" ? "Doorstep" : "Garage"} />
+        <InfoCard label="Service type" value={form.serviceType === "doorstep" ? "Intrapremise" : "OPC"} />
         <InfoCard label="Schedule" value={fmtSchedule()} />
         {!form.useSplitAssignment && (
           <InfoCard label="Mechanic" value={mechanic?.name ?? "Unassigned"} sub={mechanic ? (mechanic.isAvailable ? "Available" : "On job") : undefined} />

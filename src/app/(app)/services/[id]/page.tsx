@@ -122,7 +122,7 @@ function nextStatus(current: string): string | null {
 function LocationBadge({ type }: { type: "GARAGE" | "FIELD" | "SOCIETY" }) {
   if (type === "FIELD") return (
     <span className="inline-flex items-center gap-1 text-[11px] font-medium text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded">
-      <Home className="w-3 h-3" /> Doorstep
+      <Home className="w-3 h-3" /> Intrapremise
     </span>
   );
   if (type === "SOCIETY") return (
@@ -132,7 +132,7 @@ function LocationBadge({ type }: { type: "GARAGE" | "FIELD" | "SOCIETY" }) {
   );
   return (
     <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-600 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded">
-      <Wrench className="w-3 h-3" /> Garage
+      <Wrench className="w-3 h-3" /> OPC
     </span>
   );
 }
@@ -228,6 +228,15 @@ export default function ServiceRequestDetailPage() {
   // Pre-invoice discount
   const [invoiceDiscount, setInvoiceDiscount] = useState("");
 
+  // Location type editing
+  const [editingLocType, setEditingLocType] = useState(false);
+  const [updatingLocType, setUpdatingLocType] = useState(false);
+
+  // Work description (notes)
+  const [editingNotes, setEditingNotes] = useState(false);
+  const [notesValue, setNotesValue] = useState("");
+  const [savingNotes, setSavingNotes] = useState(false);
+
   useEffect(() => {
     // Role check is part of the same Promise.all so loading blocks render
     // until we know the role — mechanics never see this page's content.
@@ -284,6 +293,48 @@ export default function ServiceRequestDetailPage() {
       toast.success(`Status → ${STATUS_LABELS[next]}`);
     } finally {
       setAdvancing(false);
+    }
+  }
+
+  async function updateLocationType(newType: "GARAGE" | "FIELD") {
+    if (!sr) return;
+    setUpdatingLocType(true);
+    try {
+      const res = await fetch(`/api/service-requests/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ locationType: newType }),
+      });
+      if (res.ok) {
+        setSr(prev => prev ? { ...prev, locationType: newType } : prev);
+        toast.success(`Location → ${newType === "FIELD" ? "Intrapremise" : "OPC"}`);
+      } else {
+        toast.error("Failed to update location type");
+      }
+    } finally {
+      setEditingLocType(false);
+      setUpdatingLocType(false);
+    }
+  }
+
+  async function saveNotes() {
+    if (!sr) return;
+    setSavingNotes(true);
+    try {
+      const res = await fetch(`/api/service-requests/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notes: notesValue }),
+      });
+      if (res.ok) {
+        setSr(prev => prev ? { ...prev, notes: notesValue } : prev);
+        setEditingNotes(false);
+        toast.success("Description saved");
+      } else {
+        toast.error("Failed to save description");
+      }
+    } finally {
+      setSavingNotes(false);
     }
   }
 
@@ -509,12 +560,33 @@ export default function ServiceRequestDetailPage() {
 
       {/* Header */}
       <div className="bg-white border-b border-slate-200 px-5 py-4 shrink-0">
-        <div className="flex items-start gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-start gap-3 sm:gap-4">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap mb-1.5">
               <span className="font-mono text-sm font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded">{sr.srNumber}</span>
               <StatusBadge status={displayStatus} size="md" />
-              <LocationBadge type={sr.locationType} />
+              {editingLocType ? (
+                <div className="flex items-center gap-1.5">
+                  <select
+                    value={sr.locationType}
+                    onChange={e => updateLocationType(e.target.value as "GARAGE" | "FIELD")}
+                    disabled={updatingLocType}
+                    autoFocus
+                    className="h-7 px-2 text-xs border border-brand-navy-300 rounded focus:outline-none"
+                  >
+                    <option value="GARAGE">OPC</option>
+                    <option value="FIELD">Intrapremise</option>
+                  </select>
+                  <button onClick={() => setEditingLocType(false)} className="text-slate-400 hover:text-slate-600">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <button onClick={() => setEditingLocType(true)} className="flex items-center gap-1 group">
+                  <LocationBadge type={sr.locationType} />
+                  <Pencil className="w-3 h-3 text-slate-300 group-hover:text-slate-500 ml-0.5" />
+                </button>
+              )}
               {!sr.mechanic && (
                 <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded">
                   <AlertTriangle className="w-3 h-3" /> Unassigned
@@ -580,7 +652,7 @@ export default function ServiceRequestDetailPage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex flex-wrap items-center gap-2">
             <Link href={`/field/${id}`}
               className="flex items-center gap-1.5 text-xs font-medium text-slate-600 hover:bg-violet-50 hover:text-violet-700 px-3 py-1.5 rounded border border-slate-200 hover:border-violet-300 transition-colors">
               <MapPin className="w-3.5 h-3.5" /> Field View
@@ -637,9 +709,9 @@ export default function ServiceRequestDetailPage() {
       </div>
 
       {/* Body: two-column layout */}
-      <div className="flex flex-1 min-h-0 gap-0 overflow-hidden">
-        {/* Left: Timeline (60%) */}
-        <div className="flex-[6] min-w-0 overflow-y-auto border-r border-slate-200 px-5 py-5">
+      <div className="flex flex-col lg:flex-row flex-1 min-h-0 overflow-auto lg:overflow-hidden">
+        {/* Left: Timeline */}
+        <div className="lg:flex-[6] min-w-0 lg:overflow-y-auto border-r-0 lg:border-r border-b lg:border-b-0 border-slate-200 px-4 lg:px-5 py-4 lg:py-5">
           <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-4">Timeline</h2>
 
           {sr.complaint && (
@@ -673,8 +745,8 @@ export default function ServiceRequestDetailPage() {
           </div>
         </div>
 
-        {/* Right: Details + Actions (40%) */}
-        <div className="flex-[4] min-w-0 overflow-y-auto px-4 py-5 space-y-4">
+        {/* Right: Details + Actions */}
+        <div className="lg:flex-[4] min-w-0 lg:overflow-y-auto px-4 py-4 lg:py-5 space-y-4">
 
           {/* Mechanic assignment */}
           <div className="bg-white border border-slate-200 rounded-lg p-4">
@@ -703,6 +775,56 @@ export default function ServiceRequestDetailPage() {
               >
                 <AlertTriangle className="w-4 h-4 shrink-0" />
                 <span className="text-sm font-medium">No mechanic assigned — tap to assign</span>
+              </button>
+            )}
+          </div>
+
+          {/* Work Description */}
+          <div className="bg-white border border-slate-200 rounded-lg p-4">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Work Description</p>
+              {!editingNotes && (
+                <button
+                  onClick={() => { setEditingNotes(true); setNotesValue(sr.notes ?? ""); }}
+                  className="text-[10px] font-medium text-brand-navy-600 hover:text-brand-navy-800 flex items-center gap-1"
+                >
+                  <Pencil className="w-3 h-3" /> {sr.notes ? "Edit" : "Add"}
+                </button>
+              )}
+            </div>
+            {editingNotes ? (
+              <div>
+                <textarea
+                  value={notesValue}
+                  onChange={e => setNotesValue(e.target.value)}
+                  rows={4}
+                  placeholder="Describe the work done — this appears on the invoice to justify the price…"
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-brand-navy-400 resize-none"
+                />
+                <div className="flex gap-2 mt-2">
+                  <button
+                    onClick={saveNotes}
+                    disabled={savingNotes}
+                    className="text-xs font-medium text-white bg-brand-navy-800 hover:bg-brand-navy-700 px-3 py-1.5 rounded-md disabled:opacity-60"
+                  >
+                    {savingNotes ? "Saving…" : "Save"}
+                  </button>
+                  <button
+                    onClick={() => setEditingNotes(false)}
+                    className="text-xs font-medium text-slate-600 border border-slate-200 hover:bg-slate-50 px-3 py-1.5 rounded-md"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : sr.notes ? (
+              <p className="text-sm text-slate-700 whitespace-pre-wrap">{sr.notes}</p>
+            ) : (
+              <button
+                onClick={() => { setEditingNotes(true); setNotesValue(""); }}
+                className="w-full py-3 border border-dashed border-slate-200 rounded-lg text-xs text-slate-400 hover:border-brand-navy-300 hover:text-brand-navy-600 transition-colors"
+              >
+                + Add work description
               </button>
             )}
           </div>
@@ -1012,14 +1134,6 @@ export default function ServiceRequestDetailPage() {
                   );
                 })}
               </div>
-            </div>
-          )}
-
-          {/* Notes */}
-          {sr.notes && (
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-              <p className="text-[11px] font-semibold text-amber-700 uppercase tracking-wide mb-1">Notes</p>
-              <p className="text-sm text-slate-700 leading-relaxed">{sr.notes}</p>
             </div>
           )}
 

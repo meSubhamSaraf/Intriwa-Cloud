@@ -46,7 +46,7 @@ function fmtDate(iso?: string | null) {
 function LocationIcon({ type }: { type: "GARAGE" | "FIELD" | "SOCIETY" | null }) {
   if (type === "FIELD") return (
     <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-blue-700">
-      <Home className="w-2.5 h-2.5" /> Doorstep
+      <Home className="w-2.5 h-2.5" /> Intrapremise
     </span>
   );
   if (type === "SOCIETY") return (
@@ -56,7 +56,7 @@ function LocationIcon({ type }: { type: "GARAGE" | "FIELD" | "SOCIETY" | null })
   );
   return (
     <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-slate-600">
-      <Wrench className="w-2.5 h-2.5" /> Garage
+      <Wrench className="w-2.5 h-2.5" /> OPC
     </span>
   );
 }
@@ -158,8 +158,8 @@ export default function ServicesPage() {
           <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}
             className="h-9 px-2.5 text-sm border border-slate-200 rounded-md bg-white text-slate-700 focus:outline-none">
             <option value="all">All types</option>
-            <option value="FIELD">Doorstep</option>
-            <option value="GARAGE">Garage</option>
+            <option value="FIELD">Intrapremise</option>
+            <option value="GARAGE">OPC</option>
             <option value="SOCIETY">Society</option>
           </select>
           <AreaMultiFilter selected={areaFilters} onChange={setAreaFilters} />

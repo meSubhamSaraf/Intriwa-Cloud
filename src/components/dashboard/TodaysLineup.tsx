@@ -88,7 +88,7 @@ export function TodaysLineup() {
                     }`}
                   >
                     {sr.locationType === "FIELD" ? <Home className="w-2.5 h-2.5" /> : <Wrench className="w-2.5 h-2.5" />}
-                    {sr.locationType === "FIELD" ? "Doorstep" : "Garage"}
+                    {sr.locationType === "FIELD" ? "Intrapremise" : "OPC"}
                   </span>
                   <StatusBadge status={sr.status} className="ml-auto" />
                 </div>

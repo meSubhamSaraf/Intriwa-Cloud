@@ -187,7 +187,7 @@ export default function DispatchPage() {
         </Section>
 
         {/* F&F Pool */}
-        <Section title="Field / Doorstep Jobs" icon={<Clock className="w-4 h-4" />} count={ffPool.length} color="text-amber-600">
+        <Section title="Field / Intrapremise Jobs" icon={<Clock className="w-4 h-4" />} count={ffPool.length} color="text-amber-600">
           {ffPool.length === 0 ? <Empty text="No field jobs in this area" /> :
             ffPool.map(sr => (
               <div key={sr.id} className="flex items-start gap-2 p-2.5 border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors">

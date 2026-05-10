@@ -119,7 +119,7 @@ function FollowUpsTab({ items }: { items: FUItem[] }) {
                 </a>
               ) : null}
               <button
-                onClick={() => toast.info("Reschedule — open the lead to update follow-up date")}
+                onClick={() => toast.info(fu.leadId ? "Open the lead to reschedule" : "Go to Follow-ups to reschedule")}
                 className="flex items-center gap-1 text-[10px] font-medium text-slate-500 hover:text-blue-600 hover:bg-blue-50 px-1.5 py-1 rounded transition-colors"
               >
                 <CalendarPlus className="w-3 h-3" /> Reschedule
@@ -255,7 +255,7 @@ function FFPoolTab({ items }: { items: FUItem[] }) {
             <p className="text-[11px] text-slate-600 mb-2 line-clamp-2">{fu.reason}</p>
             <div className="flex items-center gap-1">
               <button
-                onClick={() => toast.info("Open the lead to schedule a doorstep visit")}
+                onClick={() => toast.info("Open the lead to schedule an intrapremise visit")}
                 className="flex items-center gap-1 text-[10px] font-medium text-brand-navy-600 hover:bg-brand-navy-50 px-2 py-1 rounded border border-brand-navy-200 transition-colors"
               >
                 <CalendarPlus className="w-3 h-3" /> Try to schedule

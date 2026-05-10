@@ -251,7 +251,7 @@ function LoginForm() {
   const [tab, setTab] = useState<"email" | "phone">("email");
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8">
+    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8">
       <h1 className="text-base font-semibold text-slate-800 mb-1">Sign in</h1>
       <p className="text-[12px] text-slate-400 mb-5">Intriwa Cloud Garage operations.</p>
 
@@ -303,7 +303,7 @@ export default function LoginPage() {
         </div>
 
         <Suspense fallback={
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 text-center text-sm text-slate-400">Loading…</div>
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8 text-center text-sm text-slate-400">Loading…</div>
         }>
           <LoginForm />
         </Suspense>

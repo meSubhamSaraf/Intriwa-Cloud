@@ -451,7 +451,7 @@ function JobsTab({ mechanic, available, onToggleAvailability, clockingIn }: {
                 <div className="flex items-center gap-1.5 mb-3">
                   <MapPin className="w-3 h-3 text-blue-500 shrink-0" />
                   <span className="text-[11px] font-medium text-blue-600 flex-1">
-                    {sr.locationType === "FIELD" ? "Doorstep" : sr.locationType}
+                    {sr.locationType === "FIELD" ? "Intrapremise" : sr.locationType === "GARAGE" ? "OPC" : sr.locationType}
                     {sr.customer?.address ? ` · ${sr.customer.address}` : ""}
                   </span>
                   {(sr.customer?.mapLink || sr.customer?.address) && (

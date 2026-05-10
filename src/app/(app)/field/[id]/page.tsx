@@ -247,7 +247,7 @@ export default function FieldSRPage() {
               <StatusBadge status={displayStatus} size="md" />
               {sr.locationType === "FIELD" && (
                 <span className="inline-flex items-center gap-1 text-[11px] font-medium text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded">
-                  <Home className="w-3 h-3" /> Doorstep
+                  <Home className="w-3 h-3" /> Intrapremise
                 </span>
               )}
               {sr.locationType === "SOCIETY" && (
@@ -257,7 +257,7 @@ export default function FieldSRPage() {
               )}
               {sr.locationType === "GARAGE" && (
                 <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-600 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded">
-                  <Wrench className="w-3 h-3" /> Garage
+                  <Wrench className="w-3 h-3" /> OPC
                 </span>
               )}
             </div>
