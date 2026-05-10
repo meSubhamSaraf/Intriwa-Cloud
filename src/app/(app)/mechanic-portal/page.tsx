@@ -305,9 +305,26 @@ function JobsTab({ mechanic, available, onToggleAvailability, clockingIn }: {
   const [advancing, setAdvancing] = useState<Record<string, boolean>>({});
   const [addItemFor, setAddItemFor] = useState<string | null>(null);
   const [obsFor, setObsFor] = useState<SR | null>(null);
+  const [notifyFor, setNotifyFor] = useState<string | null>(null);
+  const [notifying, setNotifying] = useState<Record<string, boolean>>({});
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   function getStatus(srId: string, base: string) { return localStatuses[srId] ?? base; }
+
+  async function notifyCustomer(srId: string, type: string) {
+    setNotifying(n => ({ ...n, [srId]: true }));
+    setNotifyFor(null);
+    try {
+      const res = await fetch(`/api/service-requests/${srId}/notify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type }),
+      });
+      if (!res.ok) throw new Error();
+      toast.success("Customer notified via WhatsApp");
+    } catch { toast.error("Could not send notification"); }
+    finally { setNotifying(n => ({ ...n, [srId]: false })); }
+  }
 
   async function advanceStatus(sr: SR) {
     const status = getStatus(sr.id, sr.status);
@@ -474,10 +491,33 @@ function JobsTab({ mechanic, available, onToggleAvailability, clockingIn }: {
                   </a>
                 )}
                 {sr.customer?.phone && (
-                  <a href={`https://wa.me/${sr.customer.phone.replace(/\D/g, "")}`} target="_blank" rel="noopener noreferrer"
-                    className="flex items-center gap-1.5 text-[11px] font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 px-2.5 py-1.5 rounded-lg">
-                    <MessageCircle className="w-3.5 h-3.5" /> WA
-                  </a>
+                  <div className="relative">
+                    <button
+                      onClick={() => setNotifyFor(notifyFor === sr.id ? null : sr.id)}
+                      disabled={notifying[sr.id]}
+                      className="flex items-center gap-1.5 text-[11px] font-medium text-green-700 bg-green-50 hover:bg-green-100 px-2.5 py-1.5 rounded-lg disabled:opacity-50">
+                      <MessageCircle className="w-3.5 h-3.5" />
+                      {notifying[sr.id] ? "Sending…" : "Notify"}
+                    </button>
+                    {notifyFor === sr.id && (
+                      <>
+                        <div className="fixed inset-0 z-30" onClick={() => setNotifyFor(null)} />
+                        <div className="absolute bottom-8 left-0 z-40 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden w-44">
+                          {[
+                            { type: "job_started", label: "Job Started" },
+                            { type: "waiting_parts", label: "Waiting for Parts" },
+                            { type: "job_ready", label: "Ready for Pickup" },
+                          ].map(opt => (
+                            <button key={opt.type}
+                              onClick={() => notifyCustomer(sr.id, opt.type)}
+                              className="w-full text-left px-3 py-2.5 text-[12px] text-slate-700 hover:bg-green-50 border-b border-slate-100 last:border-0">
+                              {opt.label}
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
                 )}
 
                 {/* Camera */}

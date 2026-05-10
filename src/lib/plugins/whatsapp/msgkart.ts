@@ -84,6 +84,33 @@ export class MsgKartPlugin {
     };
   }
 
+  // Send a free-form text message (only works within 24 h of the customer's last message).
+  async sendText(to: string, body: string): Promise<WASendResult> {
+    const payload = {
+      messaging_product: "whatsapp",
+      to,
+      type: "text",
+      sender_id: SENDER_ID,
+      text: { body },
+    };
+
+    const res = await fetch(`${this.baseUrl}/messages`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${API_KEY}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      console.error("[MsgKart] sendText failed", data);
+      return { messageId: "", status: "failed", rawResponse: data };
+    }
+    return { messageId: data.messages?.[0]?.id ?? "", status: "queued", rawResponse: data };
+  }
+
   // Verifies that an inbound webhook actually came from MsgKart.
   // MsgKart sends a HMAC-SHA256 signature in the X-MsgKart-Signature header.
   verifyWebhookSignature(rawBody: string, signature: string): boolean {

@@ -202,6 +202,7 @@ model Garage {
   observations           CustomerObservation[]
   serviceCatalogueItems  ServiceCatalogueItem[]
   mechanicPenalties      MechanicPenalty[]
+  whatsappMessages       WhatsAppMessage[]
 }
 
 // ─── Service Catalogue ───────────────────────────────────────────────────────
@@ -278,6 +279,7 @@ model Customer {
   leads           Lead[]
   serviceRequests ServiceRequest[]
   observations    CustomerObservation[]
+  whatsappMessages WhatsAppMessage[]
 }
 
 // ─── Vehicle ──────────────────────────────────────────────────────────────────
@@ -803,4 +805,25 @@ enum PenaltyCategory {
   DIRECT_CONTACT_THEFT
   PROPERTY_DAMAGE
   OTHER
+}
+
+// ─── WhatsApp Messages ───────────────────────────────────────────────────────
+
+model WhatsAppMessage {
+  id           String   @id @default(cuid())
+  garageId     String
+  customerId   String
+  direction    String   // "inbound" | "outbound"
+  body         String
+  templateName String?
+  status       String   @default("sent") // sent | delivered | read | failed
+  msgkartId    String?
+  sentBy       String?  // "system" | "manager:Name" | "mechanic:Name"
+  createdAt    DateTime @default(now())
+
+  garage   Garage   @relation(fields: [garageId], references: [id])
+  customer Customer @relation(fields: [customerId], references: [id])
+
+  @@index([customerId])
+  @@index([garageId])
 }

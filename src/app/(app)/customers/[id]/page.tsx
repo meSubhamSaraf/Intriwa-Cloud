@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -111,13 +111,14 @@ const OBS_STATUS_LABELS: Record<string, string> = {
 
 // ── Tab types ─────────────────────────────────────────────────────
 
-type TabId = "overview" | "vehicles" | "history" | "opportunities" | "notes";
+type TabId = "overview" | "vehicles" | "history" | "opportunities" | "notes" | "whatsapp";
 const TABS: { id: TabId; label: string }[] = [
   { id: "overview",      label: "Overview" },
   { id: "vehicles",      label: "Vehicles" },
   { id: "history",       label: "Service History" },
   { id: "opportunities", label: "Opportunities" },
   { id: "notes",         label: "Notes" },
+  { id: "whatsapp",      label: "WhatsApp" },
 ];
 
 // ── Overview tab ──────────────────────────────────────────────────
@@ -537,7 +538,7 @@ function NotesTab({ customer }: { customer: Customer }) {
 
 // ── Customer header ───────────────────────────────────────────────
 
-function CustomerHeader({ customer, onAddressUpdated, onMapLinkUpdated }: { customer: Customer; onAddressUpdated: (addr: string) => void; onMapLinkUpdated: (link: string) => void }) {
+function CustomerHeader({ customer, onAddressUpdated, onMapLinkUpdated, onOpenWhatsApp }: { customer: Customer; onAddressUpdated: (addr: string) => void; onMapLinkUpdated: (link: string) => void; onOpenWhatsApp: () => void }) {
   const [editingAddress, setEditingAddress] = useState(false);
   const [addressDraft, setAddressDraft] = useState(customer.address ?? "");
   const [savingAddress, setSavingAddress] = useState(false);
@@ -681,8 +682,8 @@ function CustomerHeader({ customer, onAddressUpdated, onMapLinkUpdated }: { cust
             className="flex items-center gap-1.5 text-xs font-medium text-slate-600 hover:bg-green-50 hover:text-green-700 px-3 py-1.5 rounded border border-slate-200 hover:border-green-300 transition-colors">
             <Phone className="w-3.5 h-3.5" /> Call
           </button>
-          <button onClick={() => toast.success("WhatsApp feature coming soon")}
-            className="flex items-center gap-1.5 text-xs font-medium text-slate-600 hover:bg-green-50 hover:text-green-700 px-3 py-1.5 rounded border border-slate-200 hover:border-green-300 transition-colors">
+          <button onClick={onOpenWhatsApp}
+            className="flex items-center gap-1.5 text-xs font-medium text-green-700 hover:bg-green-50 px-3 py-1.5 rounded border border-green-200 hover:border-green-300 transition-colors">
             <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
           </button>
           <Link href={`/services/new?customerId=${customer.id}`}
@@ -691,6 +692,136 @@ function CustomerHeader({ customer, onAddressUpdated, onMapLinkUpdated }: { cust
           </Link>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── WhatsApp chat tab ─────────────────────────────────────────────
+
+type WAMessage = {
+  id: string;
+  direction: "inbound" | "outbound";
+  body: string;
+  templateName: string | null;
+  status: string;
+  sentBy: string | null;
+  createdAt: string;
+};
+
+function WhatsAppTab({ customerId }: { customerId: string }) {
+  const [messages, setMessages] = useState<WAMessage[]>([]);
+  const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  function load() {
+    fetch(`/api/customers/${customerId}/whatsapp`)
+      .then((r) => r.json())
+      .then((data) => { setMessages(data); setLoading(false); })
+      .catch(() => setLoading(false));
+  }
+
+  useEffect(() => { load(); }, [customerId]);
+
+  // Poll for new messages every 5 seconds
+  useEffect(() => {
+    const t = setInterval(load, 5000);
+    return () => clearInterval(t);
+  }, [customerId]);
+
+  // Auto-scroll to bottom when messages change
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  async function send(e: React.FormEvent) {
+    e.preventDefault();
+    if (!text.trim()) return;
+    setSending(true);
+    try {
+      const res = await fetch(`/api/customers/${customerId}/whatsapp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: text.trim() }),
+      });
+      if (!res.ok) throw new Error();
+      const msg = await res.json();
+      setMessages((m) => [...m, msg]);
+      setText("");
+      if (msg.status === "failed") {
+        toast.warning("Saved but not sent — WhatsApp not connected yet");
+      } else {
+        toast.success("Message sent");
+      }
+    } catch { toast.error("Failed to send"); }
+    finally { setSending(false); }
+  }
+
+  function senderLabel(msg: WAMessage) {
+    if (!msg.sentBy) return "";
+    if (msg.sentBy.startsWith("manager:")) return msg.sentBy.replace("manager:", "");
+    if (msg.sentBy.startsWith("mechanic:")) return `${msg.sentBy.replace("mechanic:", "")} (mechanic)`;
+    return msg.sentBy;
+  }
+
+  function fmtTime(iso: string) {
+    return new Date(iso).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true });
+  }
+
+  if (loading) return <div className="py-12 text-center text-sm text-slate-400">Loading chat…</div>;
+
+  return (
+    <div className="flex flex-col h-full" style={{ minHeight: "60vh" }}>
+      {/* Message list */}
+      <div className="flex-1 overflow-y-auto space-y-2 pb-4">
+        {messages.length === 0 && (
+          <div className="py-16 text-center text-sm text-slate-400">
+            <MessageCircle className="w-8 h-8 mx-auto mb-2 opacity-30" />
+            <p>No messages yet.</p>
+            <p className="text-[11px] mt-1">Type a message below to start the conversation.</p>
+          </div>
+        )}
+        {messages.map((msg) => (
+          <div key={msg.id} className={`flex ${msg.direction === "outbound" ? "justify-end" : "justify-start"}`}>
+            <div className={`max-w-[75%] rounded-2xl px-3 py-2 ${
+              msg.direction === "outbound"
+                ? "bg-green-600 text-white rounded-tr-sm"
+                : "bg-white border border-slate-200 text-slate-800 rounded-tl-sm"
+            }`}>
+              {msg.templateName && (
+                <p className={`text-[9px] font-medium uppercase tracking-wide mb-0.5 ${msg.direction === "outbound" ? "text-green-200" : "text-slate-400"}`}>
+                  Template: {msg.templateName}
+                </p>
+              )}
+              <p className="text-[13px] leading-relaxed">{msg.body}</p>
+              <div className={`flex items-center justify-end gap-1.5 mt-1 ${msg.direction === "outbound" ? "text-green-200" : "text-slate-400"}`}>
+                {msg.direction === "outbound" && msg.sentBy && (
+                  <span className="text-[9px]">{senderLabel(msg)}</span>
+                )}
+                <span className="text-[9px]">{fmtTime(msg.createdAt)}</span>
+                {msg.direction === "outbound" && (
+                  <span className="text-[9px]">{msg.status === "failed" ? "✕" : "✓"}</span>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
+        <div ref={bottomRef} />
+      </div>
+
+      {/* Send box */}
+      <form onSubmit={send} className="flex gap-2 pt-3 border-t border-slate-100 bg-slate-50 -mx-5 px-5 pb-2">
+        <input
+          value={text} onChange={(e) => setText(e.target.value)}
+          placeholder="Type a message…"
+          className="flex-1 h-10 px-3 text-sm border border-slate-200 rounded-xl bg-white focus:outline-none focus:border-green-400 transition-colors"
+        />
+        <button type="submit" disabled={sending || !text.trim()}
+          className="h-10 w-10 flex items-center justify-center rounded-xl bg-green-600 text-white hover:bg-green-700 disabled:opacity-40 transition-colors shrink-0">
+          <Send className="w-4 h-4" />
+        </button>
+      </form>
     </div>
   );
 }
@@ -727,7 +858,7 @@ export default function CustomerProfilePage() {
         <span className="text-[11px] text-slate-600 font-medium">{customer.name}</span>
       </div>
 
-      <CustomerHeader customer={customer} onAddressUpdated={(addr) => setCustomer(c => c ? { ...c, address: addr || null } : c)} onMapLinkUpdated={(link) => setCustomer(c => c ? { ...c, mapLink: link || null } : c)} />
+      <CustomerHeader customer={customer} onAddressUpdated={(addr) => setCustomer(c => c ? { ...c, address: addr || null } : c)} onMapLinkUpdated={(link) => setCustomer(c => c ? { ...c, mapLink: link || null } : c)} onOpenWhatsApp={() => setActiveTab("whatsapp")} />
 
       <div className="bg-white border-b border-slate-200 px-5 shrink-0">
         <div className="flex">
@@ -756,6 +887,7 @@ export default function CustomerProfilePage() {
         {activeTab === "history"       && <ServiceHistoryTab customer={customer} />}
         {activeTab === "opportunities" && <OpportunitiesTab customerId={customer.id} customerName={customer.name} />}
         {activeTab === "notes"         && <NotesTab customer={customer} />}
+        {activeTab === "whatsapp"      && <WhatsAppTab customerId={customer.id} />}
       </div>
     </div>
   );
