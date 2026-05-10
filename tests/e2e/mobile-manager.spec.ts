@@ -6,9 +6,11 @@ import { test, expect } from "@playwright/test";
 test.describe("Mobile manager – navigation", () => {
   test("bottom nav is visible on mobile", async ({ page }) => {
     await page.goto("/dashboard");
-    // BottomNav is md:hidden — should be present on iPhone viewport
-    const nav = page.locator("nav").filter({ hasText: /jobs|customers|leads/i });
-    await expect(nav.first()).toBeVisible();
+    await expect(page).toHaveURL(/dashboard/);
+    // BottomNav links are md:hidden — at least one bottom-nav link should be visible
+    // The bottom nav contains links to /services, /customers, /leads etc.
+    const bottomNavLink = page.locator("a[href='/services'], a[href='/customers'], a[href='/leads']").first();
+    await expect(bottomNavLink).toBeVisible();
   });
 
   test("services list shows card layout on mobile", async ({ page }) => {

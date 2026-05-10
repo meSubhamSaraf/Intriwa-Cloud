@@ -20,6 +20,7 @@ export default defineConfig({
 
     {
       name: "manager",
+      testMatch: "**/manager-sr-lifecycle.spec.ts",
       use: {
         ...devices["Desktop Chrome"],
         storageState: "tests/e2e/.auth/manager.json",
@@ -28,6 +29,7 @@ export default defineConfig({
     },
     {
       name: "mechanic",
+      testMatch: "**/mechanic-portal.spec.ts",
       use: {
         ...devices["Desktop Chrome"],
         storageState: "tests/e2e/.auth/mechanic.json",
@@ -36,8 +38,9 @@ export default defineConfig({
     },
     {
       name: "mobile-manager",
+      testMatch: "**/mobile-manager.spec.ts",
       use: {
-        ...devices["iPhone 14"],
+        ...devices["Pixel 5"],  // Android — uses Chromium, already installed
         storageState: "tests/e2e/.auth/manager.json",
       },
       dependencies: ["setup"],

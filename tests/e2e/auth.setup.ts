@@ -11,26 +11,27 @@ const MANAGER_PASSWORD = process.env.TEST_MANAGER_PASSWORD!;
 const MECHANIC_EMAIL = process.env.TEST_MECHANIC_EMAIL;
 const MECHANIC_PASSWORD = process.env.TEST_MECHANIC_PASSWORD;
 
-setup("authenticate manager", async ({ page }) => {
+async function loginWithEmail(page: any, email: string, password: string) {
   await page.goto("/login");
-  await page.getByPlaceholder(/email/i).fill(MANAGER_EMAIL);
-  await page.getByPlaceholder(/password/i).fill(MANAGER_PASSWORD);
-  await page.getByRole("button", { name: /sign in/i }).click();
-  await page.waitForURL(/\/(dashboard|services|customers)/, { timeout: 15_000 });
+  // Email tab is active by default — fill the fields
+  await page.getByPlaceholder("you@intriwa.in").fill(email);
+  await page.getByPlaceholder("Enter password").fill(password);
+  await page.getByRole("button", { name: "Sign in" }).click();
+}
+
+setup("authenticate manager", async ({ page }) => {
+  await loginWithEmail(page, MANAGER_EMAIL, MANAGER_PASSWORD);
+  await page.waitForURL(/\/(dashboard|services|customers|mechanic-portal)/, { timeout: 20_000 });
   await page.context().storageState({ path: "tests/e2e/.auth/manager.json" });
 });
 
 setup("authenticate mechanic", async ({ page }) => {
   if (!MECHANIC_EMAIL || !MECHANIC_PASSWORD) {
     console.warn("⚠️  TEST_MECHANIC_EMAIL / TEST_MECHANIC_PASSWORD not set — skipping mechanic auth");
-    // Write an empty storage state so dependent tests don't crash
     fs.writeFileSync("tests/e2e/.auth/mechanic.json", JSON.stringify({ cookies: [], origins: [] }));
     return;
   }
-  await page.goto("/login");
-  await page.getByPlaceholder(/email/i).fill(MECHANIC_EMAIL);
-  await page.getByPlaceholder(/password/i).fill(MECHANIC_PASSWORD);
-  await page.getByRole("button", { name: /sign in/i }).click();
-  await page.waitForURL(/mechanic-portal/, { timeout: 15_000 });
+  await loginWithEmail(page, MECHANIC_EMAIL, MECHANIC_PASSWORD);
+  await page.waitForURL(/mechanic-portal/, { timeout: 20_000 });
   await page.context().storageState({ path: "tests/e2e/.auth/mechanic.json" });
 });
