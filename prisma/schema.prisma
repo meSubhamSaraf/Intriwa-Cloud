@@ -267,6 +267,7 @@ model Customer {
   phone     String
   email     String?
   address   String?
+  mapLink   String?
   notes     String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
