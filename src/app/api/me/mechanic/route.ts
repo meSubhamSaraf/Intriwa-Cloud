@@ -49,5 +49,31 @@ export const GET = withAuth(async (_req, { garageId }) => {
     );
   }
 
-  return NextResponse.json(mechanic);
+  // Fetch mapLinks for all customers referenced in the SRs (single raw SQL call)
+  const customerIds = [
+    ...new Set(mechanic.serviceRequests.map(sr => sr.customerId).filter(Boolean)),
+  ] as string[];
+
+  let mapLinkMap: Record<string, string | null> = {};
+  if (customerIds.length > 0) {
+    try {
+      const rows = await prisma.$queryRaw<{ id: string; mapLink: string | null }[]>`
+        SELECT id, "mapLink" FROM "Customer" WHERE id = ANY(${customerIds}::text[])
+      `;
+      for (const row of rows) mapLinkMap[row.id] = row.mapLink ?? null;
+    } catch { /* column may not exist yet — skip silently */ }
+  }
+
+  // Attach mapLink and address to each SR's customer
+  const enriched = {
+    ...mechanic,
+    serviceRequests: mechanic.serviceRequests.map(sr => ({
+      ...sr,
+      customer: sr.customer
+        ? { ...sr.customer, mapLink: mapLinkMap[sr.customerId ?? ""] ?? null }
+        : null,
+    })),
+  };
+
+  return NextResponse.json(enriched);
 });

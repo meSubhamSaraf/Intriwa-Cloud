@@ -23,6 +23,7 @@ export class PayoutService {
     // (serviceRequest.mechanicId) for items not individually assigned.
     const assignedItems = await prisma.serviceItem.findMany({
       where: {
+        isService: true, // exclude physical parts — only count labour/services
         AND: [
           {
             OR: [
@@ -105,6 +106,7 @@ export class PayoutService {
         const rev = await prisma.serviceItem.aggregate({
           _sum: { total: true },
           where: {
+            isService: true,
             assignedMechanicId: mechanicId,
             serviceRequest: {
               closedAt: { gte: periodStart, lte: periodEnd },

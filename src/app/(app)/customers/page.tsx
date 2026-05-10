@@ -84,29 +84,67 @@ export default function CustomersPage() {
 
   if (loading) return <div className="p-8 text-slate-400 text-sm">Loading customers…</div>;
 
+  const hasFilters = !!query || areaFilters.length > 0;
+
   return (
-    <div className="p-4">
-      <div className="flex items-center justify-between mb-4">
+    <div className="p-3 md:p-4">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-3">
         <div>
           <h1 className="text-base font-semibold text-slate-800">Customers</h1>
           <p className="text-[11px] text-slate-500">{filtered.length} of {customers.length}</p>
         </div>
         <Link href="/customers/new"
-          className="flex items-center gap-1.5 text-sm font-medium bg-brand-navy-800 text-white hover:bg-brand-navy-700 px-3 py-2 rounded-md transition-colors">
+          className="flex items-center gap-1.5 text-sm font-medium bg-brand-navy-800 text-white hover:bg-brand-navy-700 px-3 py-2 rounded-md transition-colors shrink-0">
           <Plus className="w-4 h-4" /> New Customer
         </Link>
       </div>
 
-      <div className="flex gap-2 mb-4 flex-wrap">
-        <div className="relative">
+      {/* Filters */}
+      <div className="flex gap-2 mb-3 flex-wrap">
+        <div className="relative flex-1 min-w-0 sm:flex-none">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
           <input type="text" placeholder="Search name or phone…" value={query} onChange={(e) => setQuery(e.target.value)}
-            className="h-8 pl-8 pr-3 text-sm bg-white border border-slate-200 rounded-md text-slate-600 placeholder:text-slate-400 focus:outline-none focus:border-brand-navy-400 w-64 transition-colors" />
+            className="h-9 w-full sm:w-64 pl-8 pr-3 text-sm bg-white border border-slate-200 rounded-md text-slate-600 placeholder:text-slate-400 focus:outline-none focus:border-brand-navy-400 transition-colors" />
         </div>
         <AreaMultiFilter selected={areaFilters} onChange={setAreaFilters} />
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+      {/* Mobile card list */}
+      <div className="md:hidden bg-white border border-slate-200 rounded-lg overflow-hidden">
+        {filtered.length === 0 ? (
+          <EmptyState icon={Users}
+            title={hasFilters ? "No customers match your filters" : "No customers yet"}
+            description={hasFilters ? "Try adjusting your search or area filter." : "Add your first customer to start tracking."}
+            action={!hasFilters ? { label: "New Customer", href: "/customers/new" } : undefined}
+          />
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {filtered.map((c) => (
+              <div key={c.id} onClick={() => router.push(`/customers/${c.id}`)}
+                className="flex items-center gap-3 px-4 py-3.5 active:bg-slate-50 cursor-pointer">
+                <UserAvatar name={c.name} size="sm" />
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-slate-800 leading-tight">{c.name}</p>
+                  <p className="text-[11px] text-slate-400 tabular-nums">{c.phone}</p>
+                  <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                    <span className="text-[10px] text-slate-400">{c.vehicles.length} vehicle{c.vehicles.length !== 1 ? "s" : ""}</span>
+                    {extractNeighbourhood(c.address) && (
+                      <span className="inline-flex items-center gap-0.5 text-[10px] text-slate-500">
+                        <MapPin className="w-2.5 h-2.5" />{extractNeighbourhood(c.address)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <ArrowRight className="w-4 h-4 text-slate-300 shrink-0" />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Desktop table */}
+      <div className="hidden md:block bg-white border border-slate-200 rounded-lg overflow-hidden">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50">
@@ -153,11 +191,10 @@ export default function CustomersPage() {
           </tbody>
         </table>
         {filtered.length === 0 && (
-          <EmptyState
-            icon={Users}
-            title={query || areaFilters.length > 0 ? "No customers match your filters" : "No customers yet"}
-            description={query || areaFilters.length > 0 ? "Try adjusting your search or area filter." : "Add your first customer to start tracking."}
-            action={!query && areaFilters.length === 0 ? { label: "New Customer", href: "/customers/new" } : undefined}
+          <EmptyState icon={Users}
+            title={hasFilters ? "No customers match your filters" : "No customers yet"}
+            description={hasFilters ? "Try adjusting your search or area filter." : "Add your first customer to start tracking."}
+            action={!hasFilters ? { label: "New Customer", href: "/customers/new" } : undefined}
           />
         )}
       </div>

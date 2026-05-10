@@ -123,44 +123,97 @@ export default function ServicesPage() {
 
   if (loading) return <div className="p-8 text-slate-400 text-sm">Loading service requests…</div>;
 
+  const hasFilters = !!query || statusFilter !== "all" || typeFilter !== "all" || areaFilters.length > 0;
+
   return (
-    <div className="p-4">
-      <div className="flex items-center justify-between mb-4">
+    <div className="p-3 md:p-4">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-3">
         <div>
           <h1 className="text-base font-semibold text-slate-800">Service Requests</h1>
           <p className="text-[11px] text-slate-500">{filtered.length} of {srs.length}</p>
         </div>
         <Link href="/services/new"
-          className="flex items-center gap-1.5 text-sm font-medium bg-brand-navy-800 text-white hover:bg-brand-navy-700 px-3 py-2 rounded-md transition-colors">
-          <Plus className="w-4 h-4" /> New Service Request
+          className="flex items-center gap-1.5 text-sm font-medium bg-brand-navy-800 text-white hover:bg-brand-navy-700 px-3 py-2 rounded-md transition-colors shrink-0">
+          <Plus className="w-4 h-4" /><span className="hidden sm:inline">New Service Request</span><span className="sm:hidden">New SR</span>
         </Link>
       </div>
 
-      <div className="flex gap-2 mb-4 flex-wrap">
-        <div className="relative">
+      {/* Filters */}
+      <div className="flex gap-2 mb-3 flex-wrap">
+        <div className="relative flex-1 min-w-0 sm:flex-none">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-          <input type="text" placeholder="Search SR#, customer, phone, reg…" value={query}
+          <input type="text" placeholder="Search SR#, customer, phone…" value={query}
             onChange={(e) => setQuery(e.target.value)}
-            className="h-8 pl-8 pr-3 text-sm bg-white border border-slate-200 rounded-md text-slate-600 placeholder:text-slate-400 focus:outline-none focus:border-brand-navy-400 w-64 transition-colors" />
+            className="h-9 w-full sm:w-64 pl-8 pr-3 text-sm bg-white border border-slate-200 rounded-md text-slate-600 placeholder:text-slate-400 focus:outline-none focus:border-brand-navy-400 transition-colors" />
         </div>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
-          className="h-8 px-2.5 text-sm border border-slate-200 rounded-md bg-white text-slate-700 focus:outline-none">
-          <option value="all">All statuses</option>
-          {Object.entries(DB_STATUS_LABELS).map(([val, label]) => (
-            <option key={val} value={val}>{label}</option>
-          ))}
-        </select>
-        <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}
-          className="h-8 px-2.5 text-sm border border-slate-200 rounded-md bg-white text-slate-700 focus:outline-none">
-          <option value="all">All types</option>
-          <option value="FIELD">Doorstep</option>
-          <option value="GARAGE">Garage</option>
-          <option value="SOCIETY">Society</option>
-        </select>
-        <AreaMultiFilter selected={areaFilters} onChange={setAreaFilters} />
+        <div className="flex gap-2 flex-wrap">
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
+            className="h-9 px-2.5 text-sm border border-slate-200 rounded-md bg-white text-slate-700 focus:outline-none">
+            <option value="all">All statuses</option>
+            {Object.entries(DB_STATUS_LABELS).map(([val, label]) => (
+              <option key={val} value={val}>{label}</option>
+            ))}
+          </select>
+          <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}
+            className="h-9 px-2.5 text-sm border border-slate-200 rounded-md bg-white text-slate-700 focus:outline-none">
+            <option value="all">All types</option>
+            <option value="FIELD">Doorstep</option>
+            <option value="GARAGE">Garage</option>
+            <option value="SOCIETY">Society</option>
+          </select>
+          <AreaMultiFilter selected={areaFilters} onChange={setAreaFilters} />
+        </div>
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+      {/* Mobile card list */}
+      <div className="md:hidden bg-white border border-slate-200 rounded-lg overflow-hidden">
+        {filtered.length === 0 ? (
+          <EmptyState icon={Wrench}
+            title={hasFilters ? "No service requests match your filters" : "No service requests yet"}
+            description={hasFilters ? "Try adjusting your search or filters." : "Create your first service request to get started."}
+            action={!hasFilters ? { label: "New Service Request", href: "/services/new" } : undefined}
+          />
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {filtered.map((sr) => (
+              <div key={sr.id} onClick={() => router.push(`/services/${sr.id}`)}
+                className="p-4 active:bg-slate-50 cursor-pointer">
+                <div className="flex items-start justify-between gap-2 mb-1.5">
+                  <div className="min-w-0">
+                    <span className="text-[10px] font-mono text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">{sr.srNumber}</span>
+                    <p className="font-semibold text-slate-800 mt-1 leading-tight">{sr.customer?.name ?? "—"}</p>
+                    {sr.customer?.phone && <p className="text-[11px] text-slate-400 tabular-nums">{sr.customer.phone}</p>}
+                  </div>
+                  <StatusBadge status={STATUS_DISPLAY[sr.status] ?? sr.status.toLowerCase()} />
+                </div>
+                {sr.vehicle && (
+                  <p className="text-[11px] text-slate-500 mb-1">
+                    {sr.vehicle.make} {sr.vehicle.model}{sr.vehicle.regNumber ? ` · ${sr.vehicle.regNumber}` : ""}
+                  </p>
+                )}
+                {sr.complaint && <p className="text-[11px] text-slate-500 truncate mb-1.5">{sr.complaint}</p>}
+                <div className="flex items-center gap-3 flex-wrap">
+                  <LocationIcon type={sr.locationType} />
+                  {sr.scheduledAt && (
+                    <span className="text-[10px] text-slate-400 tabular-nums">{fmtDate(sr.scheduledAt)}</span>
+                  )}
+                  {sr.mechanic ? (
+                    <span className="text-[10px] text-slate-500 flex items-center gap-1">
+                      <Wrench className="w-2.5 h-2.5" />{sr.mechanic.name.split(" ")[0]}
+                    </span>
+                  ) : (
+                    <span className="text-[10px] text-amber-600">Unassigned</span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Desktop table */}
+      <div className="hidden md:block bg-white border border-slate-200 rounded-lg overflow-hidden">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50">
@@ -217,9 +270,9 @@ export default function ServicesPage() {
         </table>
         {filtered.length === 0 && (
           <EmptyState icon={Wrench}
-            title={query || statusFilter !== "all" || typeFilter !== "all" || areaFilters.length > 0 ? "No service requests match your filters" : "No service requests yet"}
-            description={query || statusFilter !== "all" || typeFilter !== "all" || areaFilters.length > 0 ? "Try adjusting your search or filters." : "Create your first service request to get started."}
-            action={!query && statusFilter === "all" && typeFilter === "all" && areaFilters.length === 0 ? { label: "New Service Request", href: "/services/new" } : undefined}
+            title={hasFilters ? "No service requests match your filters" : "No service requests yet"}
+            description={hasFilters ? "Try adjusting your search or filters." : "Create your first service request to get started."}
+            action={!hasFilters ? { label: "New Service Request", href: "/services/new" } : undefined}
           />
         )}
       </div>

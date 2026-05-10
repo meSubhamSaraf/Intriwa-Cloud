@@ -787,7 +787,7 @@ function ScheduleStep({ form, setForm }: { form: FormState; setForm: (f: FormSta
       </div>
 
       {pref === "specific" && (
-        <div className="grid grid-cols-3 gap-3 max-w-lg">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-lg">
           <div>
             <label className="block text-xs font-medium text-slate-600 mb-1">Date</label>
             <input type="date" value={form.preferredDate} onChange={(e) => setForm({ ...form, preferredDate: e.target.value })} className={inputCls} />
@@ -1381,6 +1381,7 @@ function NewServiceRequestContent() {
               description: part.name,
               unitPrice: part.unitPrice,
               quantity: part.qty,
+              isService: false,
             }),
           })
         );

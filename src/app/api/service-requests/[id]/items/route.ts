@@ -17,6 +17,7 @@ export const POST = withAuthParams<{ id: string }>(async (req, _ctx, { id }) => 
       unitPrice,
       total:              unitPrice * quantity,
       assignedMechanicId: body.assignedMechanicId || null,
+      isService:          body.isService !== false, // default true; false for physical parts
     },
     include: { assignedMechanic: { select: { id: true, name: true } } },
   });

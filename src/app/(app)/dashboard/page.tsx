@@ -21,7 +21,7 @@ function FloatingActions() {
   ];
 
   return (
-    <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-2">
+    <div className="fixed bottom-20 right-4 md:bottom-6 md:right-6 z-50 flex flex-col items-end gap-2">
       {open && (
         <>
           {actions.map(({ href, label, icon: Icon }) => (
@@ -50,34 +50,29 @@ function FloatingActions() {
 
 export default function DashboardPage() {
   return (
-    <div className="p-4 h-full flex flex-col">
+    <div className="p-3 md:p-4 h-full flex flex-col">
       {/* KPI bar */}
       <KpiBar />
 
-      {/* 3-column main area */}
-      <div className="grid grid-cols-12 gap-4 flex-1 min-h-0">
-        {/* Column 1: Today's Lineup (5/12 ≈ 40%) */}
-        <div className="col-span-5 bg-slate-50 rounded-lg p-3 border border-slate-200 overflow-hidden flex flex-col">
+      {/* Main area — stacks on mobile, 3-col on desktop */}
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-3 md:gap-4 flex-1 min-h-0 mt-0">
+        <div className="md:col-span-5 bg-slate-50 rounded-lg p-3 border border-slate-200 overflow-hidden flex flex-col min-h-[240px] md:min-h-0">
           <TodaysLineup />
         </div>
-
-        {/* Column 2: Action Backlog (4/12 ≈ 33%) */}
-        <div className="col-span-4 bg-slate-50 rounded-lg p-3 border border-slate-200 overflow-hidden flex flex-col">
+        <div className="md:col-span-4 bg-slate-50 rounded-lg p-3 border border-slate-200 overflow-hidden flex flex-col min-h-[200px] md:min-h-0">
           <ActionBacklog />
         </div>
-
-        {/* Column 3: Mechanic Status Board (3/12 = 25%) */}
-        <div className="col-span-3 bg-slate-50 rounded-lg p-3 border border-slate-200 overflow-hidden flex flex-col">
+        <div className="md:col-span-3 bg-slate-50 rounded-lg p-3 border border-slate-200 overflow-hidden flex flex-col min-h-[160px] md:min-h-0">
           <MechanicStatusBoard />
         </div>
       </div>
 
-      {/* Second row: charts */}
-      <div className="grid grid-cols-12 gap-4 mt-4">
-        <div className="col-span-5 bg-white rounded-lg p-4 border border-slate-200" style={{ height: 220 }}>
+      {/* Charts row */}
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-3 md:gap-4 mt-3 md:mt-4">
+        <div className="md:col-span-5 bg-white rounded-lg p-4 border border-slate-200" style={{ height: 220 }}>
           <LeadFunnel />
         </div>
-        <div className="col-span-7 bg-white rounded-lg p-4 border border-slate-200" style={{ height: 220 }}>
+        <div className="md:col-span-7 bg-white rounded-lg p-4 border border-slate-200" style={{ height: 220 }}>
           <RevenueTrend />
         </div>
       </div>

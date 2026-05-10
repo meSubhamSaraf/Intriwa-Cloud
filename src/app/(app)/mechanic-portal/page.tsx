@@ -5,16 +5,16 @@ import {
   Wrench, CheckCircle2, Clock, ChevronRight, Car, Phone,
   MapPin, Camera, MessageCircle, Star, Wifi,
   AlertCircle, LogIn, LogOut, ExternalLink, Loader2,
-  IndianRupee, TrendingUp, Gift, Plus, X, Eye,
+  IndianRupee, TrendingUp, Gift, Plus, X, Eye, Navigation,
 } from "lucide-react";
 import { toast } from "sonner";
 
 // ── Types ─────────────────────────────────────────────────────────
 
 type SR = {
-  id: string; srNumber: string; status: string;
+  id: string; srNumber: string; status: string; customerId: string | null;
   complaint: string | null; scheduledAt: string | null; locationType: string | null;
-  customer: { name: string; phone: string | null } | null;
+  customer: { name: string; phone: string | null; address: string | null; mapLink: string | null } | null;
   vehicle: { make: string; model: string; registrationNumber: string | null } | null;
 };
 
@@ -448,9 +448,20 @@ function JobsTab({ mechanic, available, onToggleAvailability, clockingIn }: {
                 </div>
               )}
               {sr.locationType && sr.locationType !== "GARAGE" && (
-                <div className="flex items-center gap-1.5 text-[11px] text-blue-600 mb-3">
-                  <MapPin className="w-3 h-3" />
-                  <span className="font-medium">{sr.locationType === "FIELD" ? "Doorstep" : sr.locationType}</span>
+                <div className="flex items-center gap-1.5 mb-3">
+                  <MapPin className="w-3 h-3 text-blue-500 shrink-0" />
+                  <span className="text-[11px] font-medium text-blue-600 flex-1">
+                    {sr.locationType === "FIELD" ? "Doorstep" : sr.locationType}
+                    {sr.customer?.address ? ` · ${sr.customer.address}` : ""}
+                  </span>
+                  {(sr.customer?.mapLink || sr.customer?.address) && (
+                    <a
+                      href={sr.customer.mapLink ?? `https://maps.google.com?q=${encodeURIComponent(sr.customer.address ?? "")}`}
+                      target="_blank" rel="noopener noreferrer"
+                      className="flex items-center gap-1 text-[11px] font-medium text-white bg-blue-600 hover:bg-blue-700 px-2 py-1 rounded-lg shrink-0">
+                      <Navigation className="w-3 h-3" /> Navigate
+                    </a>
+                  )}
                 </div>
               )}
 

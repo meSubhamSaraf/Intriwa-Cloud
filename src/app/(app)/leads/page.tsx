@@ -220,9 +220,9 @@ export default function LeadsPage() {
   const hasFilters = !!query || statusFilter !== "all" || areaFilters.length > 0;
 
   return (
-    <div className="p-4">
+    <div className="p-3 md:p-4">
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-3">
         <div>
           <h1 className="text-base font-semibold text-slate-800">Leads</h1>
           <p className="text-[11px] text-slate-500">
@@ -233,52 +233,111 @@ export default function LeadsPage() {
           <button
             onClick={exportCsv}
             disabled={loading || filtered.length === 0}
-            className="flex items-center gap-1.5 h-8 px-3 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-md hover:bg-slate-50 transition-colors disabled:opacity-40"
+            className="hidden sm:flex items-center gap-1.5 h-8 px-3 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-md hover:bg-slate-50 transition-colors disabled:opacity-40"
           >
             <Download className="w-3.5 h-3.5" /> Export
           </button>
           <Link
             href="/leads/new"
-            className="flex items-center gap-1.5 text-sm font-medium bg-brand-navy-800 text-white hover:bg-brand-navy-700 px-3 py-2 rounded-md transition-colors"
+            className="flex items-center gap-1.5 text-sm font-medium bg-brand-navy-800 text-white hover:bg-brand-navy-700 px-3 py-2 rounded-md transition-colors shrink-0"
           >
             <Plus className="w-4 h-4" /> New Lead
           </Link>
         </div>
       </div>
 
-      {/* Status tabs */}
-      <div className="flex gap-1 mb-3 border-b border-slate-200">
-        {STATUS_TABS.map((tab) => (
-          <button
-            key={tab.value}
-            onClick={() => setStatusFilter(tab.value)}
-            className={`px-3 py-2 text-xs font-medium border-b-2 -mb-px transition-colors ${
-              statusFilter === tab.value
-                ? "border-brand-navy-700 text-brand-navy-700"
-                : "border-transparent text-slate-500 hover:text-slate-700"
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
+      {/* Status tabs — scrollable on mobile */}
+      <div className="overflow-x-auto -mx-3 px-3 md:mx-0 md:px-0">
+        <div className="flex gap-1 mb-3 border-b border-slate-200 min-w-max md:min-w-0">
+          {STATUS_TABS.map((tab) => (
+            <button
+              key={tab.value}
+              onClick={() => setStatusFilter(tab.value)}
+              className={`px-3 py-2 text-xs font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${
+                statusFilter === tab.value
+                  ? "border-brand-navy-700 text-brand-navy-700"
+                  : "border-transparent text-slate-500 hover:text-slate-700"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Search + Area filter */}
-      <div className="flex gap-2 mb-4 flex-wrap">
-        <div className="relative">
+      <div className="flex gap-2 mb-3 flex-wrap">
+        <div className="relative flex-1 min-w-0 sm:flex-none">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
           <input
             type="text"
             placeholder="Search name, phone, vehicle…"
             onChange={(e) => handleSearchChange(e.target.value)}
-            className="h-8 pl-8 pr-3 text-sm bg-white border border-slate-200 rounded-md text-slate-600 placeholder:text-slate-400 focus:outline-none focus:border-brand-navy-400 w-64 transition-colors"
+            className="h-9 w-full sm:w-64 pl-8 pr-3 text-sm bg-white border border-slate-200 rounded-md text-slate-600 placeholder:text-slate-400 focus:outline-none focus:border-brand-navy-400 transition-colors"
           />
         </div>
         <AreaMultiFilter selected={areaFilters} onChange={setAreaFilters} />
       </div>
 
-      {/* Table */}
-      <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+      {/* Mobile card list */}
+      <div className="md:hidden bg-white border border-slate-200 rounded-lg overflow-hidden">
+        {loading ? (
+          <div className="flex items-center justify-center py-16 gap-2 text-slate-500 text-sm">
+            <Loader2 className="w-4 h-4 animate-spin" /> Loading…
+          </div>
+        ) : filtered.length === 0 ? (
+          <EmptyState icon={UserPlus}
+            title={hasFilters ? "No leads match your filters" : "No leads yet"}
+            description={hasFilters ? "Try adjusting your search, status, or area filter." : "Create your first lead to start tracking prospects."}
+            action={!hasFilters ? { label: "New Lead", href: "/leads/new" } : undefined}
+          />
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {filtered.map((lead) => {
+              const vehicle = parseVehicleInfo(lead.vehicleInfo);
+              const now = new Date();
+              return (
+                <div key={lead.id} onClick={() => router.push(`/leads/${lead.id}`)}
+                  className="p-4 active:bg-slate-50 cursor-pointer">
+                  <div className="flex items-start justify-between gap-2 mb-1.5">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-slate-800 leading-tight">{lead.name}</p>
+                      <p className="text-[11px] text-slate-400 tabular-nums">{lead.phone}</p>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded border ${sourceColors[lead.source] ?? sourceColors.other}`}>
+                        {sourceLabels[lead.source] ?? lead.source}
+                      </span>
+                      <StatusBadge status={lead.status.toLowerCase()} />
+                    </div>
+                  </div>
+                  {vehicle && (
+                    <div className="flex items-center gap-1 text-[11px] text-slate-500 mb-1">
+                      <Car className="w-3 h-3 text-slate-400 shrink-0" />
+                      {vehicle.make} {vehicle.model}{vehicle.year ? ` '${String(vehicle.year).slice(-2)}` : ""}
+                    </div>
+                  )}
+                  <div className="flex items-center gap-3 flex-wrap">
+                    {lead.neighbourhood && (
+                      <span className="inline-flex items-center gap-0.5 text-[10px] text-slate-500">
+                        <MapPin className="w-2.5 h-2.5" />{lead.neighbourhood}
+                      </span>
+                    )}
+                    {lead.followUpAt && (
+                      <span className={`text-[10px] tabular-nums ${new Date(lead.followUpAt) < now ? "text-red-600 font-medium" : "text-slate-400"}`}>
+                        Follow-up {fmtDate(lead.followUpAt)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Desktop table */}
+      <div className="hidden md:block bg-white border border-slate-200 rounded-lg overflow-hidden">
         {loading ? (
           <div className="flex items-center justify-center py-20 gap-2 text-slate-500 text-sm">
             <Loader2 className="w-4 h-4 animate-spin" /> Loading leads…
@@ -368,11 +427,7 @@ export default function LeadsPage() {
               <EmptyState
                 icon={UserPlus}
                 title={hasFilters ? "No leads match your filters" : "No leads yet"}
-                description={
-                  hasFilters
-                    ? "Try adjusting your search, status, or area filter."
-                    : "Create your first lead to start tracking prospects."
-                }
+                description={hasFilters ? "Try adjusting your search, status, or area filter." : "Create your first lead to start tracking prospects."}
                 action={!hasFilters ? { label: "New Lead", href: "/leads/new" } : undefined}
               />
             )}

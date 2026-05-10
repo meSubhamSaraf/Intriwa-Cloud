@@ -225,8 +225,10 @@ export function Topbar() {
         <span className="font-semibold text-slate-800 truncate">{current}</span>
       </div>
 
-      {/* Search */}
-      <GlobalSearch />
+      {/* Search — hidden on mobile, each list page has its own search bar */}
+      <div className="hidden md:block">
+        <GlobalSearch />
+      </div>
 
       <div className="flex items-center gap-2 ml-auto">
         {/* Notification bell */}
@@ -307,9 +309,9 @@ export function Topbar() {
           </DropdownMenuContent>
         </DropdownMenu>
 
-        {/* New button */}
+        {/* New button — hidden on mobile, page-level buttons handle this */}
         <DropdownMenu>
-          <DropdownMenuTrigger className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md bg-brand-navy-800 text-white hover:bg-brand-navy-700 text-sm font-medium transition-colors">
+          <DropdownMenuTrigger className="hidden md:inline-flex items-center gap-1.5 h-8 px-3 rounded-md bg-brand-navy-800 text-white hover:bg-brand-navy-700 text-sm font-medium transition-colors">
             <Plus className="w-3.5 h-3.5" />
             New
           </DropdownMenuTrigger>
