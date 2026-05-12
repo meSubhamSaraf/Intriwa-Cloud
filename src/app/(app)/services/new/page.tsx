@@ -55,6 +55,12 @@ interface Part {
   unitPrice: number;
 }
 
+type ServicePackageOption = {
+  id: string; name: string; description: string | null;
+  packagePrice: number; mrpTotal: number;
+  items: { description: string; mrpPrice: number; quantity: number }[];
+};
+
 interface FormState {
   customerId: string;
   selectedCustomer: RealCustomer | null;
@@ -67,6 +73,7 @@ interface FormState {
   selectedServiceIds: string[];
   customServices: CustomService[];
   parts: Part[];
+  selectedPackageIds: string[];
   schedulingPreference: SchedulingPreference;
   preferredDate: string;
   preferredDateFrom: string;
@@ -95,6 +102,7 @@ const INITIAL: FormState = {
   selectedServiceIds: [],
   customServices: [],
   parts: [],
+  selectedPackageIds: [],
   schedulingPreference: "specific",
   preferredDate: "",
   preferredDateFrom: "",
@@ -494,6 +502,15 @@ function ServicesStep({ form, setForm, catalogue }: { form: FormState; setForm: 
   const [partName, setPartName] = useState("");
   const [partQty, setPartQty] = useState("1");
   const [partPrice, setPartPrice] = useState("");
+  const [packages, setPackages] = useState<ServicePackageOption[]>([]);
+  const [pkgsLoaded, setPkgsLoaded] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/packages")
+      .then(r => r.ok ? r.json() : [])
+      .then((data: ServicePackageOption[]) => setPackages(data.filter(p => (p as ServicePackageOption & { isActive?: boolean }).isActive !== false)))
+      .finally(() => setPkgsLoaded(true));
+  }, []);
   const [serviceSearch, setServiceSearch] = useState("");
 
   const selectedVehicle = form.customerVehicles.find((v) => v.id === form.vehicleId);
@@ -722,6 +739,44 @@ function ServicesStep({ form, setForm, catalogue }: { form: FormState; setForm: 
           </button>
         )}
       </div>
+
+      {/* Service Packages */}
+      {pkgsLoaded && packages.length > 0 && (
+        <div>
+          <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide mb-2">Service Packages</p>
+          <div className="space-y-1.5">
+            {packages.map((pkg) => {
+              const selected = form.selectedPackageIds.includes(pkg.id);
+              const savings = pkg.mrpTotal - pkg.packagePrice;
+              return (
+                <label
+                  key={pkg.id}
+                  className={`flex items-start gap-3 p-2.5 rounded-lg border cursor-pointer transition-colors ${selected ? "bg-brand-navy-50 border-brand-navy-300" : "bg-white border-slate-200 hover:border-slate-300"}`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selected}
+                    onChange={() => {
+                      const ids = form.selectedPackageIds;
+                      setForm({ ...form, selectedPackageIds: selected ? ids.filter(i => i !== pkg.id) : [...ids, pkg.id] });
+                    }}
+                    className="text-brand-navy-700 rounded w-4 h-4 flex-shrink-0 mt-0.5"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className={`text-sm font-medium ${selected ? "text-brand-navy-800" : "text-slate-700"}`}>{pkg.name}</p>
+                    {pkg.description && <p className="text-[11px] text-slate-400 truncate">{pkg.description}</p>}
+                    <p className="text-[11px] text-slate-400 mt-0.5">{pkg.items.map(i => i.description).join(" · ")}</p>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <p className="text-sm font-semibold text-brand-navy-800">₹{pkg.packagePrice.toLocaleString("en-IN")}</p>
+                    {savings > 0 && <p className="text-[10px] text-green-600 font-medium">Save ₹{savings.toLocaleString("en-IN")}</p>}
+                  </div>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {count > 0 && (
         <div className="sticky bottom-0 -mx-1 bg-white border-t border-slate-200 pt-3 pb-1">
@@ -1388,6 +1443,15 @@ function NewServiceRequestContent() {
         );
       }
       await Promise.allSettled(itemPromises);
+
+      // Apply selected service packages (creates inventory snapshot + service item)
+      for (const packageId of form.selectedPackageIds) {
+        await fetch(`/api/service-requests/${sr.id}/apply-package`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ packageId }),
+        }).catch(() => {});
+      }
 
       // Save address / mapLink back to customer profile
       if (form.customerId && form.serviceType === "doorstep") {

@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import {
   User, Users, Wrench, HardHat, Bell, MessageSquare,
   Check, Edit2, Plus, CheckCircle, Wifi, Clock, MapPin, X, Loader2,
-  Fuel,
+  Fuel, Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 type ServiceCategory = "4W" | "2W" | "AC" | "Accessory" | "Body" | "Wash";
@@ -320,6 +320,16 @@ function CatalogTab() {
     } catch { toast.error("Failed to update"); }
   }
 
+  async function deleteService(id: string) {
+    if (!confirm("Delete this service? This cannot be undone.")) return;
+    try {
+      const res = await fetch(`/api/service-catalogue/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error();
+      setItems(prev => prev.filter(s => s.id !== id));
+      toast.success("Service deleted");
+    } catch { toast.error("Failed to delete service"); }
+  }
+
   async function addService() {
     if (!newItem.name.trim()) return;
     setSaving(true);
@@ -483,9 +493,14 @@ function CatalogTab() {
                         <button onClick={() => { setEditingId(null); setDraft(null); }} className="text-[11px] text-slate-400 hover:text-slate-600">Cancel</button>
                       </div>
                     ) : (
-                      <button onClick={() => startEdit(s)} className="text-[11px] text-slate-400 hover:text-brand-navy-600 hover:underline flex items-center gap-1">
-                        <Edit2 className="w-3 h-3" /> Edit
-                      </button>
+                      <div className="flex items-center gap-3">
+                        <button onClick={() => startEdit(s)} className="text-[11px] text-slate-400 hover:text-brand-navy-600 hover:underline flex items-center gap-1">
+                          <Edit2 className="w-3 h-3" /> Edit
+                        </button>
+                        <button onClick={() => deleteService(s.id)} className="text-[11px] text-red-400 hover:text-red-600 flex items-center gap-1">
+                          <Trash2 className="w-3 h-3" /> Delete
+                        </button>
+                      </div>
                     )}
                   </td>
                 </tr>
