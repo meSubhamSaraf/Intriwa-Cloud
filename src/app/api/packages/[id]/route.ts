@@ -24,6 +24,7 @@ export const PATCH = withAuthParams<{ id: string }>(async (req, { garageId }, { 
     name?: string;
     description?: string;
     packagePrice?: number;
+    durationMinutes?: number;
     isActive?: boolean;
     items?: {
       description: string;

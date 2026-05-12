@@ -848,8 +848,9 @@ model ServicePackage {
   garageId     String
   name         String
   description  String?
-  packagePrice Decimal  @db.Decimal(10, 2)
-  isActive     Boolean  @default(true)
+  packagePrice    Decimal  @db.Decimal(10, 2)
+  durationMinutes Int      @default(60)
+  isActive        Boolean  @default(true)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 

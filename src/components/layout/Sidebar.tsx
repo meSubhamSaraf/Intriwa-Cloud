@@ -49,7 +49,6 @@ const navItems = [
   { href: "/invoices", label: "Invoices", icon: Receipt },
   { href: "/payouts", label: "Payouts", icon: DollarSign },
   { href: "/incentives", label: "Incentives", icon: Zap },
-  { href: "/packages", label: "Packages", icon: Boxes },
   { href: "/expenses", label: "Expenses", icon: Wallet },
   { href: "/analytics", label: "Analytics", icon: TrendingUp },
   { href: "/subscriptions", label: "Subscriptions", icon: CreditCard },

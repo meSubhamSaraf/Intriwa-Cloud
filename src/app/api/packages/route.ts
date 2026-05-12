@@ -16,10 +16,11 @@ export const GET = withAuth(async (_req, { garageId }) => {
 
 export const POST = withAuth(async (req, { garageId }) => {
   const body = await req.json();
-  const { name, description, packagePrice, items = [] } = body as {
+  const { name, description, packagePrice, durationMinutes, items = [] } = body as {
     name: string;
     description?: string;
     packagePrice: number;
+    durationMinutes?: number;
     items: {
       description: string;
       mrpPrice: number;
@@ -38,6 +39,7 @@ export const POST = withAuth(async (req, { garageId }) => {
       name,
       description,
       packagePrice,
+      ...(durationMinutes != null ? { durationMinutes } : {}),
       items: {
         create: items.map((item) => ({
           description: item.description,

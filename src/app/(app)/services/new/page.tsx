@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft, ArrowRight, Check, Car, User, Wrench, Calendar,
   HardHat, FileText, Search, Plus, Clock, AlertTriangle, X, Package, MapPin,
+  ChevronDown, ChevronUp,
 } from "lucide-react";
 import { toast } from "sonner";
 type ServiceCategory = "4W" | "2W" | "AC" | "Accessory" | "Body" | "Wash";
@@ -57,7 +58,7 @@ interface Part {
 
 type ServicePackageOption = {
   id: string; name: string; description: string | null;
-  packagePrice: number; mrpTotal: number;
+  packagePrice: number; mrpTotal: number; durationMinutes: number;
   items: { description: string; mrpPrice: number; quantity: number }[];
 };
 
@@ -511,9 +512,11 @@ function ServicesStep({ form, setForm, catalogue }: { form: FormState; setForm: 
   const [packages, setPackages] = useState<ServicePackageOption[]>([]);
   const [pkgsLoaded, setPkgsLoaded] = useState(false);
   const [inventoryItems, setInventoryItems] = useState<InventoryItemOption[]>([]);
+  const [invLoaded, setInvLoaded] = useState(false);
   const [selectedInvItemId, setSelectedInvItemId] = useState("");
   const [invQty, setInvQty] = useState("1");
   const [showInvForm, setShowInvForm] = useState(false);
+  const [collapsedCats, setCollapsedCats] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     fetch("/api/packages")
@@ -522,8 +525,19 @@ function ServicesStep({ form, setForm, catalogue }: { form: FormState; setForm: 
       .finally(() => setPkgsLoaded(true));
     fetch("/api/inventory")
       .then(r => r.ok ? r.json() : [])
-      .then((data: InventoryItemOption[]) => setInventoryItems(data.filter(i => i.stockQty > 0)));
+      .then((data: InventoryItemOption[]) => setInventoryItems(
+        data.map(i => ({ ...i, stockQty: Number(i.stockQty), unitPrice: Number(i.unitPrice), mrp: i.mrp != null ? Number(i.mrp) : null }))
+      ))
+      .finally(() => setInvLoaded(true));
   }, []);
+
+  function toggleCat(cat: string) {
+    setCollapsedCats(prev => {
+      const next = new Set(prev);
+      if (next.has(cat)) next.delete(cat); else next.add(cat);
+      return next;
+    });
+  }
 
   function addInventoryPart() {
     if (!selectedInvItemId) { toast.error("Select an item"); return; }
@@ -617,8 +631,9 @@ function ServicesStep({ form, setForm, catalogue }: { form: FormState; setForm: 
   const customTotal = form.customServices.reduce((sum, c) => sum + c.price, 0);
   const partsTotal = form.parts.reduce((sum, p) => sum + p.qty * p.unitPrice, 0);
   const invPartsTotal = form.selectedInventoryParts.reduce((sum, p) => sum + p.qty * p.unitPrice, 0);
-  const total = catalogTotal + customTotal + partsTotal + invPartsTotal;
-  const count = form.selectedServiceIds.length + form.customServices.length + form.parts.length + form.selectedInventoryParts.length;
+  const pkgTotal = packages.filter(p => form.selectedPackageIds.includes(p.id)).reduce((s, p) => s + Number(p.packagePrice), 0);
+  const total = catalogTotal + customTotal + partsTotal + invPartsTotal + pkgTotal;
+  const count = form.selectedServiceIds.length + form.customServices.length + form.parts.length + form.selectedInventoryParts.length + form.selectedPackageIds.length;
 
   return (
     <div className="space-y-5">
@@ -652,17 +667,35 @@ function ServicesStep({ form, setForm, catalogue }: { form: FormState; setForm: 
           )}
         </div>
       ) : (
-        byCategory.map(({ cat, items }) => (
-          <div key={cat}>
-            <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide mb-2">{CATEGORY_LABELS[cat]}</p>
-            <div className="space-y-1.5">
-              {items.map((item) => {
-                const selected = form.selectedServiceIds.includes(item.id);
-                return <ServiceRow key={item.id} item={item} selected={selected} onToggle={() => toggle(item.id)} />;
-              })}
+        byCategory.map(({ cat, items }) => {
+          const collapsed = collapsedCats.has(cat);
+          const selectedCount = items.filter(i => form.selectedServiceIds.includes(i.id)).length;
+          return (
+            <div key={cat}>
+              <button
+                onClick={() => toggleCat(cat)}
+                className="w-full flex items-center gap-2 mb-2 group"
+              >
+                <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide flex-1 text-left">{CATEGORY_LABELS[cat]}</p>
+                {selectedCount > 0 && (
+                  <span className="text-[10px] font-semibold bg-brand-navy-100 text-brand-navy-700 px-1.5 py-0.5 rounded-full">{selectedCount}</span>
+                )}
+                {collapsed
+                  ? <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                  : <ChevronUp className="w-3.5 h-3.5 text-slate-400" />
+                }
+              </button>
+              {!collapsed && (
+                <div className="space-y-1.5">
+                  {items.map((item) => {
+                    const selected = form.selectedServiceIds.includes(item.id);
+                    return <ServiceRow key={item.id} item={item} selected={selected} onToggle={() => toggle(item.id)} />;
+                  })}
+                </div>
+              )}
             </div>
-          </div>
-        ))
+          );
+        })
       )}
 
       <div>
@@ -773,7 +806,7 @@ function ServicesStep({ form, setForm, catalogue }: { form: FormState; setForm: 
       </div>
 
       {/* Inventory Parts */}
-      {inventoryItems.length > 0 && (
+      {invLoaded && (
         <div>
           <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide mb-2">Inventory Parts</p>
           {form.selectedInventoryParts.length > 0 && (
@@ -825,6 +858,8 @@ function ServicesStep({ form, setForm, catalogue }: { form: FormState; setForm: 
                 <button onClick={() => setShowInvForm(false)} className="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-700">Cancel</button>
               </div>
             </div>
+          ) : inventoryItems.length === 0 ? (
+            <p className="text-[11px] text-slate-400 py-2">No inventory items set up yet — add items in Inventory.</p>
           ) : (
             <button
               onClick={() => setShowInvForm(true)}
@@ -1199,7 +1234,7 @@ function MechanicStep({ form, setForm, realMechanics, catalogue }: { form: FormS
 
 // ── Step 7: Review ────────────────────────────────────────────────
 
-function ReviewStep({ form, setForm, catalogue, realMechanics }: { form: FormState; setForm: (f: FormState) => void; catalogue: CatalogueItem[]; realMechanics: RealMechanic[] }) {
+function ReviewStep({ form, setForm, catalogue, realMechanics, packages }: { form: FormState; setForm: (f: FormState) => void; catalogue: CatalogueItem[]; realMechanics: RealMechanic[]; packages: ServicePackageOption[] }) {
   const customer = form.selectedCustomer;
   const vehicle = form.customerVehicles.find((v) => v.id === form.vehicleId) ?? null;
   const mechanic = realMechanics.find((m) => m.id === form.mechanicId);
@@ -1210,9 +1245,11 @@ function ReviewStep({ form, setForm, catalogue, realMechanics }: { form: FormSta
   const customMinutes = form.customServices.reduce((sum, c) => sum + c.durationMinutes, 0);
   const partsTotal = form.parts.reduce((sum, p) => sum + p.qty * p.unitPrice, 0);
   const invPartsTotal = form.selectedInventoryParts.reduce((sum, p) => sum + p.qty * p.unitPrice, 0);
-  const totalPrice = catalogTotal + customTotal + partsTotal + invPartsTotal;
+  const selectedPkgs = packages.filter(p => form.selectedPackageIds.includes(p.id));
+  const pkgTotal = selectedPkgs.reduce((s, p) => s + Number(p.packagePrice), 0);
+  const totalPrice = catalogTotal + customTotal + partsTotal + invPartsTotal + pkgTotal;
   const totalMinutes = catalogMinutes + customMinutes;
-  const hasAnything = selectedServices.length > 0 || form.customServices.length > 0 || form.parts.length > 0 || form.selectedInventoryParts.length > 0;
+  const hasAnything = selectedServices.length > 0 || form.customServices.length > 0 || form.parts.length > 0 || form.selectedInventoryParts.length > 0 || selectedPkgs.length > 0;
 
   function fmtSchedule() {
     if (form.schedulingPreference === "anytime") return "F&F Pool (anytime)";
@@ -1326,6 +1363,22 @@ function ReviewStep({ form, setForm, catalogue, realMechanics }: { form: FormSta
               ))}
             </>
           )}
+          {selectedPkgs.length > 0 && (
+            <>
+              <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-100">
+                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Service Packages</p>
+              </div>
+              {selectedPkgs.map((pkg) => (
+                <div key={pkg.id} className="flex items-center justify-between px-3 py-2 border-b border-slate-50">
+                  <div>
+                    <p className="text-sm text-slate-800">{pkg.name}</p>
+                    <p className="text-[10px] text-slate-400">{pkg.items.map(i => i.description).join(" · ")}</p>
+                  </div>
+                  <p className="text-sm font-medium text-slate-700">₹{Number(pkg.packagePrice).toLocaleString("en-IN")}</p>
+                </div>
+              ))}
+            </>
+          )}
           <div className="flex items-center justify-between px-3 py-2.5 bg-slate-50 border-t border-slate-200">
             <p className="text-sm font-semibold text-slate-700">Estimated total</p>
             <div className="text-right">
@@ -1380,6 +1433,7 @@ function NewServiceRequestContent() {
   const [allCustomers, setAllCustomers] = useState<RealCustomer[]>([]);
   const [catalogue, setCatalogue] = useState<CatalogueItem[]>([]);
   const [realMechanics, setRealMechanics] = useState<RealMechanic[]>([]);
+  const [allPackages, setAllPackages] = useState<ServicePackageOption[]>([]);
   const [saving, setSaving] = useState(false);
 
   const [step, setStep] = useState(() => {
@@ -1429,6 +1483,10 @@ function NewServiceRequestContent() {
       .then((data: RealMechanic[]) => {
         setRealMechanics(data);
       });
+
+    fetch("/api/packages")
+      .then(r => r.ok ? r.json() : [])
+      .then((data: ServicePackageOption[]) => setAllPackages(data.filter(p => (p as ServicePackageOption & { isActive?: boolean }).isActive !== false)));
   }, []);
 
   // mapLink is not in the Prisma schema — fetch it separately whenever customer changes
@@ -1610,7 +1668,7 @@ function NewServiceRequestContent() {
     <ServicesStep key="services" form={form} setForm={setForm} catalogue={catalogue} />,
     <ScheduleStep key="schedule" form={form} setForm={setForm} />,
     <MechanicStep key="mechanic" form={form} setForm={setForm} realMechanics={realMechanics} catalogue={catalogue} />,
-    <ReviewStep key="review" form={form} setForm={setForm} catalogue={catalogue} realMechanics={realMechanics} />,
+    <ReviewStep key="review" form={form} setForm={setForm} catalogue={catalogue} realMechanics={realMechanics} packages={allPackages} />,
   ];
 
   return (
