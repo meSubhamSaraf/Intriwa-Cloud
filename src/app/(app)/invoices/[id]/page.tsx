@@ -24,6 +24,21 @@ interface InvoiceItem {
   total: number;
 }
 
+interface SRPkgItem {
+  id: string;
+  description: string;
+  mrpPrice: number;
+  quantity: number;
+}
+
+interface SRPackage {
+  id: string;
+  packageName: string;
+  packagePrice: number;
+  mrpTotal: number;
+  items: SRPkgItem[];
+}
+
 interface Invoice {
   id: string;
   invoiceNumber: string;
@@ -44,6 +59,7 @@ interface Invoice {
   serviceRequest: {
     id: string;
     srNumber: string;
+    srPackages: SRPackage[];
     customer: {
       id: string;
       name: string;
@@ -86,6 +102,19 @@ function normaliseInvoice(raw: unknown): Invoice {
     unitPrice: Number(item.unitPrice),
     total: Number(item.total),
   }));
+  const sr = r.serviceRequest as Record<string, unknown> | null;
+  const srPackages: SRPackage[] = ((sr?.srPackages ?? []) as Record<string, unknown>[]).map((p) => ({
+    id: String(p.id),
+    packageName: String(p.packageName),
+    packagePrice: Number(p.packagePrice),
+    mrpTotal: Number(p.mrpTotal),
+    items: ((p.items ?? []) as Record<string, unknown>[]).map((i) => ({
+      id: String(i.id),
+      description: String(i.description),
+      mrpPrice: Number(i.mrpPrice),
+      quantity: Number(i.quantity),
+    })),
+  }));
   return {
     ...(r as unknown as Invoice),
     subtotal: Number(r.subtotal),
@@ -95,6 +124,7 @@ function normaliseInvoice(raw: unknown): Invoice {
     total: Number(r.total),
     paidAmount: r.paidAmount != null ? Number(r.paidAmount) : null,
     items,
+    serviceRequest: sr ? { ...(sr as unknown as NonNullable<Invoice["serviceRequest"]>), srPackages } : null,
   };
 }
 
@@ -622,32 +652,72 @@ export default function InvoiceDetailPage() {
         <div className="px-4 py-3 border-b border-slate-100 bg-slate-50">
           <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Line Items</p>
         </div>
-        <table className="w-full">
-          <thead>
-            <tr className="border-b border-slate-100 bg-slate-50/50">
-              <th className="px-4 py-2 text-left text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Description</th>
-              <th className="px-4 py-2 text-right text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Qty</th>
-              <th className="px-4 py-2 text-right text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Unit Price</th>
-              <th className="px-4 py-2 text-right text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            {invoice.items.length === 0 ? (
-              <tr>
-                <td colSpan={4} className="px-4 py-4 text-center text-[12px] text-slate-400">No line items</td>
-              </tr>
-            ) : (
-              invoice.items.map((item) => (
-                <tr key={item.id} className="border-b border-slate-100 last:border-0">
-                  <td className="px-4 py-2.5 text-sm text-slate-700">{item.description}</td>
-                  <td className="px-4 py-2.5 text-sm text-slate-600 text-right tabular-nums">{item.quantity}</td>
-                  <td className="px-4 py-2.5 text-sm text-slate-600 text-right tabular-nums">{fmtMoney(item.unitPrice)}</td>
-                  <td className="px-4 py-2.5 text-sm font-semibold text-slate-800 text-right tabular-nums">{fmtMoney(item.total)}</td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+
+        {invoice.items.length === 0 ? (
+          <p className="px-4 py-4 text-center text-[12px] text-slate-400">No line items</p>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {invoice.items.map((item) => {
+              const pkg = sr?.srPackages?.find(p => p.packageName === item.description);
+              if (pkg) {
+                const savings = pkg.mrpTotal - pkg.packagePrice;
+                return (
+                  <div key={item.id} className="px-4 py-3 bg-green-50/40">
+                    {/* Package header row */}
+                    <div className="flex items-start justify-between gap-4 mb-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-[9px] font-bold text-green-700 bg-green-100 border border-green-200 px-1.5 py-0.5 rounded uppercase tracking-wide">Package</span>
+                          <p className="text-sm font-semibold text-slate-800">{item.description}</p>
+                        </div>
+                        {savings > 0 && (
+                          <div className="flex items-center gap-1.5 mt-1">
+                            <Tag className="w-3 h-3 text-green-600" />
+                            <span className="text-[11px] font-semibold text-green-700">
+                              Save {fmtMoney(savings)}
+                            </span>
+                            <span className="text-[11px] text-slate-400 line-through tabular-nums">
+                              MRP {fmtMoney(pkg.mrpTotal)}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                      <p className="text-sm font-bold text-slate-800 tabular-nums shrink-0">{fmtMoney(pkg.packagePrice)}</p>
+                    </div>
+
+                    {/* Sub-items */}
+                    {pkg.items.length > 0 && (
+                      <div className="ml-2 space-y-0.5 border-l-2 border-green-200 pl-3">
+                        {pkg.items.map((sub, i) => (
+                          <div key={sub.id ?? i} className="flex items-center justify-between gap-2">
+                            <p className="text-[12px] text-slate-600 flex-1 min-w-0 truncate">{sub.description}</p>
+                            <div className="flex items-center gap-3 shrink-0">
+                              <span className="text-[11px] text-slate-400">×{sub.quantity}</span>
+                              <span className="text-[11px] text-slate-400 line-through tabular-nums">{fmtMoney(sub.mrpPrice * sub.quantity)}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              }
+
+              // Regular line item
+              return (
+                <div key={item.id} className="flex items-center gap-4 px-4 py-2.5">
+                  <p className="flex-1 text-sm text-slate-700">{item.description}</p>
+                  <span className="text-[12px] text-slate-400 tabular-nums shrink-0">×{item.quantity}</span>
+                  <span className="text-[12px] text-slate-500 tabular-nums shrink-0 w-16 text-right">{fmtMoney(item.unitPrice)}</span>
+                  <span className="text-sm font-semibold text-slate-800 tabular-nums shrink-0 w-20 text-right">{fmtMoney(item.total)}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Column header for non-package items */}
+        <div className="hidden" />
 
         {/* ── GST + Discount totals section ── */}
         <div className="border-t border-slate-200 px-4 py-4 bg-slate-50 space-y-3">

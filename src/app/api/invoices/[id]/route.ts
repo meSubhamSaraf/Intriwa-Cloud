@@ -15,6 +15,7 @@ export const GET = withAuthParams<{ id: string }>(async (_req, { garageId }, { i
         include: {
           customer: true,
           vehicle: true,
+          srPackages: { include: { items: true } },
         },
       },
     },
