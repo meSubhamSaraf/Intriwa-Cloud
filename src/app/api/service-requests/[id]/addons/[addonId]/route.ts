@@ -15,17 +15,11 @@ export const PATCH = withAuthParams<Params>(async (req, _ctx, { id, addonId }) =
   }
 
   const body = await req.json();
-  const existing = (() => { try { return JSON.parse(addon.notes ?? "{}"); } catch { return {}; } })();
-
-  const updatedNotes = JSON.stringify({
-    ...existing,
-    ...(body.sellingPrice != null ? { sellingPrice: Number(body.sellingPrice) } : {}),
-  });
 
   const updated = await prisma.addOn.update({
     where: { id: addonId },
     data: {
-      notes: updatedNotes,
+      ...(body.sellingPrice != null ? { sellingPrice: Number(body.sellingPrice) } : {}),
       ...(body.status ? { status: body.status } : {}),
       ...(body.status === "APPROVED" ? { approvedAt: new Date() } : {}),
       ...(body.status === "REJECTED" ? { rejectedAt: new Date() } : {}),

@@ -559,6 +559,8 @@ model AddOn {
   serviceRequestId String
   description      String
   estimatedCost    Decimal     @db.Decimal(10, 2)
+  sellingPrice     Decimal?    @db.Decimal(10, 2)
+  quantity         Int         @default(1)
   status           AddOnStatus @default(PENDING)
   approvedAt       DateTime?
   rejectedAt       DateTime?

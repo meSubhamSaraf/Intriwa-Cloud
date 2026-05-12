@@ -28,15 +28,14 @@ export const POST = withAuthParams<{ id: string }>(async (req, { garageId }, { i
     return NextResponse.json({ error: "description and purchasePrice are required" }, { status: 422 });
   }
 
-  const notes = JSON.stringify({ photoUrl: photoUrl ?? null, sellingPrice: null, quantity });
-
   const addon = await prisma.addOn.create({
     data: {
       serviceRequestId: id,
       description: description.trim(),
       estimatedCost: Number(purchasePrice),
+      quantity: Number(quantity) || 1,
       status: "PENDING",
-      notes,
+      notes: photoUrl ? JSON.stringify({ photoUrl }) : null,
     },
   });
 

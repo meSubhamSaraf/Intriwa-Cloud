@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2, TrendingUp, BarChart3, IndianRupee, AlertTriangle } from "lucide-react";
+import { Loader2, TrendingUp, BarChart3, IndianRupee, AlertTriangle, ShoppingBag, ChevronDown, ChevronUp, Package } from "lucide-react";
 import { toast } from "sonner";
 
 // ── Types ─────────────────────────────────────────────────────────
@@ -323,6 +323,310 @@ function JobBreakdownTable({ jobs }: { jobs: JobBreakdown[] }) {
   );
 }
 
+// ── Aftermarket types ─────────────────────────────────────────────
+
+type AftermarketPart = {
+  description: string;
+  usageCount: number;
+  totalQuantity: number;
+  totalCost: number;
+  totalRevenue: number;
+  margin: number;
+  avgPurchasePrice: number;
+  avgSellingPrice: number | null;
+  instances: { srNumber: string; customerName: string; date: string | null; purchasePrice: number; sellingPrice: number | null; quantity: number }[];
+};
+
+type AftermarketData = {
+  parts: AftermarketPart[];
+  rawList: { id: string; description: string; srNumber: string; customerName: string; date: string | null; quantity: number; purchasePrice: number; sellingPrice: number | null; margin: number | null }[];
+  totalAddons: number;
+};
+
+// ── AftermarketAnalysis component ────────────────────────────────
+
+function AftermarketAnalysis({ data }: { data: AftermarketData }) {
+  const [view, setView] = useState<"parts" | "transactions">("parts");
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  if (data.totalAddons === 0) {
+    return (
+      <div className="bg-white border border-slate-200 rounded-lg p-8 text-center">
+        <ShoppingBag className="w-8 h-8 text-slate-200 mx-auto mb-2" />
+        <p className="text-sm text-slate-400">No approved aftermarket parts in this period</p>
+        <p className="text-xs text-slate-300 mt-1">Parts added by mechanics and approved by manager will appear here</p>
+      </div>
+    );
+  }
+
+  const totalCost    = data.parts.reduce((s, p) => s + p.totalCost, 0);
+  const totalRevenue = data.parts.reduce((s, p) => s + p.totalRevenue, 0);
+  const totalMargin  = totalRevenue - totalCost;
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+        <div>
+          <p className="text-sm font-semibold text-slate-800">Aftermarket Parts Analysis</p>
+          <p className="text-[11px] text-slate-400">{data.totalAddons} parts across {data.parts.length} unique items</p>
+        </div>
+        <div className="flex gap-1">
+          {(["parts", "transactions"] as const).map(v => (
+            <button key={v} onClick={() => setView(v)}
+              className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${view === v ? "bg-brand-navy-800 text-white" : "text-slate-500 hover:bg-slate-100"}`}>
+              {v === "parts" ? "By Part" : "All Transactions"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Summary strip */}
+      <div className="grid grid-cols-3 divide-x divide-slate-100 border-b border-slate-100">
+        {[
+          { label: "Total Cost", value: fmtRupee(totalCost), color: "text-red-600" },
+          { label: "Total Revenue", value: fmtRupee(totalRevenue), color: "text-green-700" },
+          { label: "Margin", value: fmtRupee(totalMargin), color: totalMargin >= 0 ? "text-green-700" : "text-red-600" },
+        ].map(s => (
+          <div key={s.label} className="px-4 py-2.5 text-center">
+            <p className="text-[10px] text-slate-400 uppercase tracking-wide">{s.label}</p>
+            <p className={`text-sm font-bold tabular-nums ${s.color}`}>{s.value}</p>
+          </div>
+        ))}
+      </div>
+
+      {view === "parts" ? (
+        <div className="divide-y divide-slate-100">
+          {data.parts.map(part => {
+            const isExp = expanded === part.description;
+            const marginPct = part.totalRevenue > 0
+              ? ((part.margin / part.totalRevenue) * 100).toFixed(0) + "%"
+              : null;
+            const noSellPrice = part.avgSellingPrice === null;
+            return (
+              <div key={part.description}>
+                <button
+                  onClick={() => setExpanded(isExp ? null : part.description)}
+                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition-colors text-left"
+                >
+                  <div className="w-7 h-7 rounded-full bg-brand-navy-50 flex items-center justify-center shrink-0">
+                    <span className="text-[10px] font-bold text-brand-navy-700">{part.usageCount}×</span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-slate-800 truncate">{part.description}</p>
+                    <p className="text-[11px] text-slate-400">
+                      Qty {part.totalQuantity} · Buy avg {fmtRupee(part.avgPurchasePrice)}
+                      {part.avgSellingPrice ? ` · Sell avg ${fmtRupee(part.avgSellingPrice)}` : ""}
+                    </p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    {noSellPrice ? (
+                      <span className="text-[10px] font-medium text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">No sell price set</span>
+                    ) : (
+                      <span className={`text-xs font-semibold tabular-nums ${part.margin >= 0 ? "text-green-700" : "text-red-600"}`}>
+                        {fmtRupee(part.margin)} {marginPct ? `(${marginPct})` : ""}
+                      </span>
+                    )}
+                  </div>
+                  {isExp ? <ChevronUp className="w-3.5 h-3.5 text-slate-400 shrink-0" /> : <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />}
+                </button>
+                {isExp && (
+                  <div className="px-4 pb-3 bg-slate-50">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="text-slate-400 border-b border-slate-200">
+                            <th className="py-1.5 text-left font-medium">SR</th>
+                            <th className="py-1.5 text-left font-medium">Customer</th>
+                            <th className="py-1.5 text-right font-medium">Qty</th>
+                            <th className="py-1.5 text-right font-medium">Buy</th>
+                            <th className="py-1.5 text-right font-medium">Sell</th>
+                            <th className="py-1.5 text-right font-medium">Margin</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {part.instances.map((inst, i) => {
+                            const m = inst.sellingPrice != null ? (inst.sellingPrice - inst.purchasePrice) * inst.quantity : null;
+                            return (
+                              <tr key={i} className="border-b border-slate-100 last:border-0">
+                                <td className="py-1.5 font-mono text-slate-500">{inst.srNumber}</td>
+                                <td className="py-1.5 text-slate-600 truncate max-w-[100px]">{inst.customerName}</td>
+                                <td className="py-1.5 text-right tabular-nums">{inst.quantity}</td>
+                                <td className="py-1.5 text-right tabular-nums text-red-600">{fmtRupee(inst.purchasePrice)}</td>
+                                <td className="py-1.5 text-right tabular-nums text-slate-600">{inst.sellingPrice != null ? fmtRupee(inst.sellingPrice) : "—"}</td>
+                                <td className={`py-1.5 text-right tabular-nums font-medium ${m != null ? (m >= 0 ? "text-green-700" : "text-red-600") : "text-slate-300"}`}>
+                                  {m != null ? fmtRupee(m) : "—"}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="bg-slate-50 border-b border-slate-200 text-slate-500">
+                <th className="px-3 py-2.5 text-left font-medium">Part</th>
+                <th className="px-3 py-2.5 text-left font-medium">SR</th>
+                <th className="px-3 py-2.5 text-left font-medium">Customer</th>
+                <th className="px-3 py-2.5 text-right font-medium">Qty</th>
+                <th className="px-3 py-2.5 text-right font-medium">Buy Price</th>
+                <th className="px-3 py-2.5 text-right font-medium">Sell Price</th>
+                <th className="px-3 py-2.5 text-right font-medium">Margin</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.rawList.map(row => (
+                <tr key={row.id} className="border-b border-slate-100 hover:bg-slate-50">
+                  <td className="px-3 py-2 text-slate-800 font-medium max-w-[140px] truncate">{row.description}</td>
+                  <td className="px-3 py-2 font-mono text-slate-400">{row.srNumber}</td>
+                  <td className="px-3 py-2 text-slate-600 max-w-[100px] truncate">{row.customerName}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{row.quantity}</td>
+                  <td className="px-3 py-2 text-right tabular-nums text-red-600">{fmtRupee(row.purchasePrice)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums text-slate-600">{row.sellingPrice != null ? fmtRupee(row.sellingPrice) : <span className="text-amber-500">Not set</span>}</td>
+                  <td className={`px-3 py-2 text-right tabular-nums font-medium ${row.margin != null ? (row.margin >= 0 ? "text-green-700" : "text-red-600") : "text-slate-300"}`}>
+                    {row.margin != null ? fmtRupee(row.margin) : "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Package Analytics types ───────────────────────────────────────
+
+type PackagePerf = {
+  packageId: string;
+  packageName: string;
+  usageCount: number;
+  totalRevenue: number;
+  totalMrp: number;
+  totalDiscount: number;
+  instances: { srNumber: string; customerName: string; date: string | null; packagePrice: number; mrpTotal: number }[];
+};
+
+type PackageAnalyticsData = {
+  packages: PackagePerf[];
+  totalPackagesApplied: number;
+  totalRevenue: number;
+  totalDiscount: number;
+};
+
+// ── Package Analytics component ───────────────────────────────────
+
+function PackageAnalytics({ data }: { data: PackageAnalyticsData }) {
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  if (data.totalPackagesApplied === 0) {
+    return (
+      <div className="bg-white border border-slate-200 rounded-lg p-8 text-center">
+        <Package className="w-8 h-8 text-slate-200 mx-auto mb-2" />
+        <p className="text-sm text-slate-400">No packages used in this period</p>
+        <p className="text-xs text-slate-300 mt-1">Service packages applied to jobs will appear here</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+        <div>
+          <p className="text-sm font-semibold text-slate-800">Package Performance</p>
+          <p className="text-[11px] text-slate-400">{data.totalPackagesApplied} packages applied · {data.packages.length} unique</p>
+        </div>
+      </div>
+
+      {/* Summary strip */}
+      <div className="grid grid-cols-3 divide-x divide-slate-100 border-b border-slate-100">
+        {[
+          { label: "Total Revenue", value: fmtRupee(data.totalRevenue), color: "text-green-700" },
+          { label: "MRP Total", value: fmtRupee(data.packages.reduce((s, p) => s + p.totalMrp, 0)), color: "text-slate-700" },
+          { label: "Discount Given", value: fmtRupee(data.totalDiscount), color: "text-amber-600" },
+        ].map(s => (
+          <div key={s.label} className="px-4 py-2.5 text-center">
+            <p className="text-[10px] text-slate-400 uppercase tracking-wide">{s.label}</p>
+            <p className={`text-sm font-bold tabular-nums ${s.color}`}>{s.value}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="divide-y divide-slate-100">
+        {data.packages.map(pkg => {
+          const isExp = expanded === pkg.packageId;
+          const discountPct = pkg.totalMrp > 0
+            ? ((pkg.totalDiscount / pkg.totalMrp) * 100).toFixed(0) + "%"
+            : null;
+          return (
+            <div key={pkg.packageId}>
+              <button
+                onClick={() => setExpanded(isExp ? null : pkg.packageId)}
+                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition-colors text-left"
+              >
+                <div className="w-7 h-7 rounded-full bg-violet-50 flex items-center justify-center shrink-0">
+                  <span className="text-[10px] font-bold text-violet-700">{pkg.usageCount}×</span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-slate-800 truncate">{pkg.packageName}</p>
+                  <p className="text-[11px] text-slate-400">
+                    Revenue {fmtRupee(pkg.totalRevenue)} · MRP {fmtRupee(pkg.totalMrp)}
+                    {discountPct ? ` · ${discountPct} discount` : ""}
+                  </p>
+                </div>
+                <div className="text-right shrink-0">
+                  <span className="text-xs font-semibold text-amber-600 tabular-nums">
+                    -{fmtRupee(pkg.totalDiscount)}
+                  </span>
+                </div>
+                {isExp ? <ChevronUp className="w-3.5 h-3.5 text-slate-400 shrink-0" /> : <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />}
+              </button>
+              {isExp && (
+                <div className="px-4 pb-3 bg-slate-50">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="text-slate-400 border-b border-slate-200">
+                          <th className="py-1.5 text-left font-medium">SR</th>
+                          <th className="py-1.5 text-left font-medium">Customer</th>
+                          <th className="py-1.5 text-right font-medium">Package Price</th>
+                          <th className="py-1.5 text-right font-medium">MRP</th>
+                          <th className="py-1.5 text-right font-medium">Discount</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pkg.instances.map((inst, i) => (
+                          <tr key={i} className="border-b border-slate-100 last:border-0">
+                            <td className="py-1.5 font-mono text-slate-500">{inst.srNumber}</td>
+                            <td className="py-1.5 text-slate-600 truncate max-w-[100px]">{inst.customerName}</td>
+                            <td className="py-1.5 text-right tabular-nums text-green-700">{fmtRupee(inst.packagePrice)}</td>
+                            <td className="py-1.5 text-right tabular-nums text-slate-500">{fmtRupee(inst.mrpTotal)}</td>
+                            <td className="py-1.5 text-right tabular-nums text-amber-600">{fmtRupee(inst.mrpTotal - inst.packagePrice)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ── Skeleton ──────────────────────────────────────────────────────
 
 function Skeleton({ className }: { className?: string }) {
@@ -368,6 +672,8 @@ export default function AnalyticsPage() {
   const [startDate, setStartDate] = useState(firstOfMonthISO());
   const [endDate, setEndDate] = useState(todayISO());
   const [data, setData] = useState<PnLData | null>(null);
+  const [aftermarketData, setAftermarketData] = useState<AftermarketData | null>(null);
+  const [packageAnalytics, setPackageAnalytics] = useState<PackageAnalyticsData | null>(null);
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
@@ -379,14 +685,26 @@ export default function AnalyticsPage() {
     setLoading(true);
     try {
       const params = new URLSearchParams({ startDate, endDate });
-      const res = await fetch(`/api/analytics/pnl?${params}`);
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
+      const [pnlRes, amRes, pkgRes] = await Promise.all([
+        fetch(`/api/analytics/pnl?${params}`),
+        fetch(`/api/analytics/aftermarket?${params}`),
+        fetch(`/api/analytics/packages?${params}`),
+      ]);
+      if (!pnlRes.ok) {
+        const err = await pnlRes.json().catch(() => ({}));
         toast.error(err.error ?? "Failed to load analytics");
         return;
       }
-      const pnl: PnLData = await res.json();
+      const pnl: PnLData = await pnlRes.json();
       setData(pnl);
+      if (amRes.ok) {
+        const am: AftermarketData = await amRes.json();
+        setAftermarketData(am);
+      }
+      if (pkgRes.ok) {
+        const pkg: PackageAnalyticsData = await pkgRes.json();
+        setPackageAnalytics(pkg);
+      }
       setLoaded(true);
     } catch {
       toast.error("Failed to load analytics");
@@ -479,6 +797,12 @@ export default function AnalyticsPage() {
 
           {/* Parts P&L */}
           <PartsPnLCard jobCosts={data.jobCosts} />
+
+          {/* Aftermarket Parts Analysis */}
+          {aftermarketData && <AftermarketAnalysis data={aftermarketData} />}
+
+          {/* Package Performance */}
+          {packageAnalytics && <PackageAnalytics data={packageAnalytics} />}
         </>
       )}
     </div>

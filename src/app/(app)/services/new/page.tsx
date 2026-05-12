@@ -61,6 +61,10 @@ type ServicePackageOption = {
   items: { description: string; mrpPrice: number; quantity: number }[];
 };
 
+type InventoryItemOption = {
+  id: string; name: string; stockQty: number; unitPrice: number; mrp: number | null;
+};
+
 interface FormState {
   customerId: string;
   selectedCustomer: RealCustomer | null;
@@ -74,6 +78,7 @@ interface FormState {
   customServices: CustomService[];
   parts: Part[];
   selectedPackageIds: string[];
+  selectedInventoryParts: { inventoryItemId: string; name: string; qty: number; unitPrice: number }[];
   schedulingPreference: SchedulingPreference;
   preferredDate: string;
   preferredDateFrom: string;
@@ -103,6 +108,7 @@ const INITIAL: FormState = {
   customServices: [],
   parts: [],
   selectedPackageIds: [],
+  selectedInventoryParts: [],
   schedulingPreference: "specific",
   preferredDate: "",
   preferredDateFrom: "",
@@ -504,13 +510,38 @@ function ServicesStep({ form, setForm, catalogue }: { form: FormState; setForm: 
   const [partPrice, setPartPrice] = useState("");
   const [packages, setPackages] = useState<ServicePackageOption[]>([]);
   const [pkgsLoaded, setPkgsLoaded] = useState(false);
+  const [inventoryItems, setInventoryItems] = useState<InventoryItemOption[]>([]);
+  const [selectedInvItemId, setSelectedInvItemId] = useState("");
+  const [invQty, setInvQty] = useState("1");
+  const [showInvForm, setShowInvForm] = useState(false);
 
   useEffect(() => {
     fetch("/api/packages")
       .then(r => r.ok ? r.json() : [])
       .then((data: ServicePackageOption[]) => setPackages(data.filter(p => (p as ServicePackageOption & { isActive?: boolean }).isActive !== false)))
       .finally(() => setPkgsLoaded(true));
+    fetch("/api/inventory")
+      .then(r => r.ok ? r.json() : [])
+      .then((data: InventoryItemOption[]) => setInventoryItems(data.filter(i => i.stockQty > 0)));
   }, []);
+
+  function addInventoryPart() {
+    if (!selectedInvItemId) { toast.error("Select an item"); return; }
+    const item = inventoryItems.find(i => i.id === selectedInvItemId);
+    if (!item) return;
+    const qty = Number(invQty) || 1;
+    const existing = form.selectedInventoryParts.find(p => p.inventoryItemId === selectedInvItemId);
+    if (existing) {
+      setForm({ ...form, selectedInventoryParts: form.selectedInventoryParts.map(p => p.inventoryItemId === selectedInvItemId ? { ...p, qty: p.qty + qty } : p) });
+    } else {
+      setForm({ ...form, selectedInventoryParts: [...form.selectedInventoryParts, { inventoryItemId: item.id, name: item.name, qty, unitPrice: item.unitPrice }] });
+    }
+    setSelectedInvItemId(""); setInvQty("1"); setShowInvForm(false);
+  }
+
+  function removeInventoryPart(inventoryItemId: string) {
+    setForm({ ...form, selectedInventoryParts: form.selectedInventoryParts.filter(p => p.inventoryItemId !== inventoryItemId) });
+  }
   const [serviceSearch, setServiceSearch] = useState("");
 
   const selectedVehicle = form.customerVehicles.find((v) => v.id === form.vehicleId);
@@ -585,8 +616,9 @@ function ServicesStep({ form, setForm, catalogue }: { form: FormState; setForm: 
   const catalogTotal = activeCatalogue.filter((s) => form.selectedServiceIds.includes(s.id)).reduce((sum, s) => sum + s.basePrice, 0);
   const customTotal = form.customServices.reduce((sum, c) => sum + c.price, 0);
   const partsTotal = form.parts.reduce((sum, p) => sum + p.qty * p.unitPrice, 0);
-  const total = catalogTotal + customTotal + partsTotal;
-  const count = form.selectedServiceIds.length + form.customServices.length + form.parts.length;
+  const invPartsTotal = form.selectedInventoryParts.reduce((sum, p) => sum + p.qty * p.unitPrice, 0);
+  const total = catalogTotal + customTotal + partsTotal + invPartsTotal;
+  const count = form.selectedServiceIds.length + form.customServices.length + form.parts.length + form.selectedInventoryParts.length;
 
   return (
     <div className="space-y-5">
@@ -739,6 +771,70 @@ function ServicesStep({ form, setForm, catalogue }: { form: FormState; setForm: 
           </button>
         )}
       </div>
+
+      {/* Inventory Parts */}
+      {inventoryItems.length > 0 && (
+        <div>
+          <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide mb-2">Inventory Parts</p>
+          {form.selectedInventoryParts.length > 0 && (
+            <div className="border border-slate-200 rounded-lg overflow-hidden mb-2">
+              {form.selectedInventoryParts.map((p, i) => (
+                <div key={p.inventoryItemId} className={`flex items-center gap-2 px-3 py-2 ${i > 0 ? "border-t border-slate-100" : ""}`}>
+                  <Package className="w-3.5 h-3.5 text-brand-navy-400 flex-shrink-0" />
+                  <p className="flex-1 text-sm text-slate-800">{p.name}</p>
+                  <span className="text-[12px] text-slate-500 tabular-nums">×{p.qty}</span>
+                  <span className="text-[12px] font-medium text-slate-700 tabular-nums w-20 text-right">₹{(p.qty * p.unitPrice).toLocaleString("en-IN")}</span>
+                  <button onClick={() => removeInventoryPart(p.inventoryItemId)} className="text-slate-400 hover:text-red-500 flex-shrink-0">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          {showInvForm ? (
+            <div className="border border-slate-200 rounded-lg p-3 bg-slate-50 space-y-2">
+              <select
+                autoFocus
+                value={selectedInvItemId}
+                onChange={e => setSelectedInvItemId(e.target.value)}
+                className={selectCls}
+              >
+                <option value="">Select inventory item…</option>
+                {inventoryItems.map(item => (
+                  <option key={item.id} value={item.id}>
+                    {item.name} — ₹{item.unitPrice.toLocaleString("en-IN")} (stock: {item.stockQty})
+                  </option>
+                ))}
+              </select>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Qty</label>
+                  <input type="number" min="1" placeholder="1" value={invQty} onChange={e => setInvQty(e.target.value)} className={inputCls} />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Unit price (₹)</label>
+                  <input
+                    type="number" readOnly
+                    value={inventoryItems.find(i => i.id === selectedInvItemId)?.unitPrice ?? ""}
+                    className={inputCls + " bg-slate-100 text-slate-500"}
+                  />
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={addInventoryPart} className="px-3 py-1.5 text-xs font-medium bg-brand-navy-800 text-white rounded-md hover:bg-brand-navy-700 transition-colors">Add</button>
+                <button onClick={() => setShowInvForm(false)} className="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-700">Cancel</button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => setShowInvForm(true)}
+              className="w-full flex items-center gap-2 p-2.5 rounded-lg border border-dashed border-slate-300 text-slate-500 hover:border-brand-navy-300 hover:text-brand-navy-600 transition-colors text-sm"
+            >
+              <Plus className="w-3.5 h-3.5" /> Add from inventory
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Service Packages */}
       {pkgsLoaded && packages.length > 0 && (
@@ -1113,9 +1209,10 @@ function ReviewStep({ form, setForm, catalogue, realMechanics }: { form: FormSta
   const customTotal = form.customServices.reduce((sum, c) => sum + c.price, 0);
   const customMinutes = form.customServices.reduce((sum, c) => sum + c.durationMinutes, 0);
   const partsTotal = form.parts.reduce((sum, p) => sum + p.qty * p.unitPrice, 0);
-  const totalPrice = catalogTotal + customTotal + partsTotal;
+  const invPartsTotal = form.selectedInventoryParts.reduce((sum, p) => sum + p.qty * p.unitPrice, 0);
+  const totalPrice = catalogTotal + customTotal + partsTotal + invPartsTotal;
   const totalMinutes = catalogMinutes + customMinutes;
-  const hasAnything = selectedServices.length > 0 || form.customServices.length > 0 || form.parts.length > 0;
+  const hasAnything = selectedServices.length > 0 || form.customServices.length > 0 || form.parts.length > 0 || form.selectedInventoryParts.length > 0;
 
   function fmtSchedule() {
     if (form.schedulingPreference === "anytime") return "F&F Pool (anytime)";
@@ -1204,6 +1301,23 @@ function ReviewStep({ form, setForm, catalogue, realMechanics }: { form: FormSta
                 <div key={p.id} className="flex items-center justify-between px-3 py-2 border-b border-slate-50">
                   <div className="flex items-center gap-1.5">
                     <Package className="w-3 h-3 text-slate-400" />
+                    <p className="text-sm text-slate-800">{p.name}</p>
+                    <span className="text-[10px] text-slate-400">×{p.qty}</span>
+                  </div>
+                  <p className="text-sm font-medium text-slate-700">₹{(p.qty * p.unitPrice).toLocaleString("en-IN")}</p>
+                </div>
+              ))}
+            </>
+          )}
+          {form.selectedInventoryParts.length > 0 && (
+            <>
+              <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-100">
+                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Inventory Parts</p>
+              </div>
+              {form.selectedInventoryParts.map((p) => (
+                <div key={p.inventoryItemId} className="flex items-center justify-between px-3 py-2 border-b border-slate-50">
+                  <div className="flex items-center gap-1.5">
+                    <Package className="w-3 h-3 text-brand-navy-400" />
                     <p className="text-sm text-slate-800">{p.name}</p>
                     <span className="text-[10px] text-slate-400">×{p.qty}</span>
                   </div>
@@ -1450,6 +1564,19 @@ function NewServiceRequestContent() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ packageId }),
+        }).catch(() => {});
+      }
+
+      // Record inventory parts usage (deducts stock + snapshots cost price)
+      for (const invPart of form.selectedInventoryParts) {
+        await fetch(`/api/service-requests/${sr.id}/inventory`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            inventoryItemId: invPart.inventoryItemId,
+            quantity: invPart.qty,
+            unitPrice: invPart.unitPrice,
+          }),
         }).catch(() => {});
       }
 
