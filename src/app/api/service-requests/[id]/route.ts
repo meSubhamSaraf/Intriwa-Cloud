@@ -14,11 +14,26 @@ export const GET = withAuthParams<{ id: string }>(async (_req, _ctx, { id }) => 
   return NextResponse.json(sr);
 });
 
-export const PATCH = withAuthParams<{ id: string }>(async (req, { profile }, { id }) => {
+export const PATCH = withAuthParams<{ id: string }>(async (req, { garageId, profile }, { id }) => {
   const body = await req.json();
 
   if (body.status) {
     const updated = await srService.updateStatus(id, body.status, profile.id, profile.name);
+
+    // If kmTravelled was sent alongside status update, persist it + compute fuel allowance
+    if (body.kmTravelled !== undefined) {
+      const garage = await prisma.garage.findUnique({
+        where: { id: garageId },
+        select: { fuelRatePerKm: true },
+      });
+      const rate = Number(garage?.fuelRatePerKm ?? 6);
+      const fuelAllowance = Number(body.kmTravelled) * rate;
+      await prisma.serviceRequest.update({
+        where: { id },
+        data: { kmTravelled: Number(body.kmTravelled), fuelAllowance },
+      });
+    }
+
     return NextResponse.json(updated);
   }
 

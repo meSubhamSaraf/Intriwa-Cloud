@@ -141,9 +141,27 @@ export class PayoutService {
     }
 
     const incentiveAmount = incentiveRows.reduce((s, r) => s + r.bonusAmount, 0);
-    const totalAmount = baseAmount + incentiveAmount;
 
-    return { mechanic, payoutItems, incentiveRows, baseAmount, incentiveAmount, totalAmount };
+    // ── Fuel allowance: field SRs assigned to this mechanic in the period ────
+    // Only applies to mechanics who travel to customer sites (AFFILIATE/FREELANCE
+    // or any mechanic assigned to SRs with kmTravelled set).
+    const fuelSRs = await prisma.serviceRequest.findMany({
+      where: {
+        mechanicId,
+        status: "CLOSED",
+        closedAt: { gte: periodStart, lte: periodEnd },
+        kmTravelled: { not: null },
+      },
+      select: { fuelAllowance: true },
+    });
+    const fuelAllowanceTotal = fuelSRs.reduce(
+      (sum, sr) => sum + Number(sr.fuelAllowance ?? 0),
+      0
+    );
+
+    const totalAmount = baseAmount + incentiveAmount + fuelAllowanceTotal;
+
+    return { mechanic, payoutItems, incentiveRows, baseAmount, incentiveAmount, fuelAllowanceTotal, totalAmount };
   }
 
   // Save the calculated payout as a PENDING record

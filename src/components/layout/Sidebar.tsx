@@ -24,6 +24,9 @@ import {
   ShieldCheck,
   DollarSign,
   Zap,
+  Boxes,
+  Wallet,
+  TrendingUp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -46,6 +49,9 @@ const navItems = [
   { href: "/invoices", label: "Invoices", icon: Receipt },
   { href: "/payouts", label: "Payouts", icon: DollarSign },
   { href: "/incentives", label: "Incentives", icon: Zap },
+  { href: "/packages", label: "Packages", icon: Boxes },
+  { href: "/expenses", label: "Expenses", icon: Wallet },
+  { href: "/analytics", label: "Analytics", icon: TrendingUp },
   { href: "/subscriptions", label: "Subscriptions", icon: CreditCard },
   { href: "/dispatch", label: "Dispatch", icon: Route },
   { href: "/field", label: "Field View", icon: Smartphone },

@@ -57,6 +57,7 @@ export class ServiceRequestService {
         timelineEvents: { orderBy: { createdAt: "asc" } },
         inventoryUsages: { include: { inventoryItem: true } },
         invoices: true,
+        srPackages: { include: { items: true } },
       },
     });
     if (!sr) return null;

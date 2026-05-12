@@ -58,6 +58,7 @@ type SR = {
   inventoryUsages: SRInventoryUsage[];
   timelineEvents: TimelineEvent[];
   invoices?: { id: string; invoiceNumber: string }[];
+  srPackages?: SRServicePackage[];
 };
 
 type AddOn = {
@@ -80,6 +81,17 @@ type SRObservation = {
   followUpNote: string | null;
   raisedByName: string | null;
   createdAt: string;
+};
+
+type SRServicePackageItem = { id: string; description: string; mrpPrice: number; quantity: number };
+type SRServicePackage = { id: string; packageName: string; packagePrice: number; mrpTotal: number; items: SRServicePackageItem[] };
+
+type AvailablePackage = {
+  id: string;
+  name: string;
+  packagePrice: number;
+  description: string | null;
+  items: { id?: string; description: string; mrpPrice: number; quantity: number }[];
 };
 
 // ── Helpers ────────────────────────────────────────────────────────
@@ -237,6 +249,12 @@ export default function ServiceRequestDetailPage() {
   const [notesValue, setNotesValue] = useState("");
   const [savingNotes, setSavingNotes] = useState(false);
 
+  // Service packages
+  const [appliedPackages, setAppliedPackages] = useState<SRServicePackage[]>([]);
+  const [availablePackages, setAvailablePackages] = useState<AvailablePackage[]>([]);
+  const [showPkgPicker, setShowPkgPicker] = useState(false);
+  const [applyingPkgId, setApplyingPkgId] = useState<string | null>(null);
+
   useEffect(() => {
     // Role check is part of the same Promise.all so loading blocks render
     // until we know the role — mechanics never see this page's content.
@@ -252,6 +270,7 @@ export default function ServiceRequestDetailPage() {
       }
       setSr(srData);
       if (srData?.invoices?.length) setRaisedInvoiceId(srData.invoices[0].id);
+      setAppliedPackages(srData?.srPackages ?? []);
       setAddons(addonData ?? []);
       setSrObservations(obsData ?? []);
       const prices: Record<string, string> = {};
@@ -274,6 +293,34 @@ export default function ServiceRequestDetailPage() {
     if (inventoryItems.length > 0) return;
     const r = await fetch("/api/inventory");
     if (r.ok) setInventoryItems(await r.json());
+  }
+
+  async function loadAvailablePackages() {
+    if (availablePackages.length > 0) return;
+    const r = await fetch("/api/packages");
+    if (r.ok) setAvailablePackages(await r.json());
+  }
+
+  async function applyPackage(packageId: string) {
+    setApplyingPkgId(packageId);
+    try {
+      const res = await fetch(`/api/service-requests/${id}/apply-package`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ packageId }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.error ?? "Failed to apply package");
+        return;
+      }
+      const applied: SRServicePackage = await res.json();
+      setAppliedPackages(prev => [...prev, applied]);
+      setShowPkgPicker(false);
+      toast.success("Package applied — inventory deducted");
+    } finally {
+      setApplyingPkgId(null);
+    }
   }
 
   async function advanceStatus() {
@@ -776,6 +823,66 @@ export default function ServiceRequestDetailPage() {
                 <AlertTriangle className="w-4 h-4 shrink-0" />
                 <span className="text-sm font-medium">No mechanic assigned — tap to assign</span>
               </button>
+            )}
+          </div>
+
+          {/* Service Packages */}
+          <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+              <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Service Packages</p>
+              <button
+                onClick={() => { loadAvailablePackages(); setShowPkgPicker(true); }}
+                className="flex items-center gap-1 text-[10px] font-medium text-brand-navy-600 hover:text-brand-navy-800"
+              >
+                <Plus className="w-3 h-3" /> Apply Package
+              </button>
+            </div>
+
+            {appliedPackages.length === 0 ? (
+              <div className="px-4 py-4 text-center">
+                <p className="text-[12px] text-slate-400">No packages applied yet.</p>
+                <button
+                  onClick={() => { loadAvailablePackages(); setShowPkgPicker(true); }}
+                  className="mt-2 text-[11px] font-medium text-brand-navy-600 hover:text-brand-navy-800 flex items-center gap-1 mx-auto"
+                >
+                  <Plus className="w-3 h-3" /> Apply a package
+                </button>
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {appliedPackages.map(ap => {
+                  const savings = ap.mrpTotal - Number(ap.packagePrice);
+                  return (
+                    <div key={ap.id} className="px-4 py-3">
+                      <div className="flex items-start justify-between gap-2 mb-1.5">
+                        <p className="text-sm font-semibold text-slate-800">{ap.packageName}</p>
+                        <div className="text-right shrink-0">
+                          <p className="text-base font-bold text-brand-navy-800">₹{Number(ap.packagePrice).toLocaleString("en-IN")}</p>
+                          {ap.mrpTotal > Number(ap.packagePrice) && (
+                            <p className="text-[11px] text-slate-400 line-through">₹{Number(ap.mrpTotal).toLocaleString("en-IN")}</p>
+                          )}
+                        </div>
+                      </div>
+                      {savings > 0 && (
+                        <span className="inline-flex items-center gap-0.5 bg-green-50 border border-green-200 text-green-700 text-[10px] font-semibold px-1.5 py-0.5 rounded mb-2">
+                          Save ₹{savings.toLocaleString("en-IN")}
+                        </span>
+                      )}
+                      {ap.items.length > 0 && (
+                        <div className="space-y-0.5 mt-1">
+                          {ap.items.map(item => (
+                            <div key={item.id} className="flex items-center justify-between text-[11px]">
+                              <span className="text-slate-600 truncate flex-1">{item.description}</span>
+                              <span className="text-slate-400 ml-2 shrink-0">×{item.quantity}</span>
+                              <span className="text-slate-500 ml-2 shrink-0 tabular-nums">₹{Number(item.mrpPrice).toLocaleString("en-IN")}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             )}
           </div>
 
@@ -1418,6 +1525,58 @@ export default function ServiceRequestDetailPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Package picker modal ─────────────────────────────────── */}
+      {showPkgPicker && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-sm">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+              <h3 className="font-semibold text-slate-800">Apply Service Package</h3>
+              <button onClick={() => setShowPkgPicker(false)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-4 space-y-1.5 max-h-80 overflow-y-auto">
+              {availablePackages.filter(p => {
+                const ap = p as AvailablePackage & { isActive?: boolean };
+                return ap.isActive !== false;
+              }).length === 0 ? (
+                <p className="text-sm text-slate-400 text-center py-4">No packages available</p>
+              ) : (
+                availablePackages
+                  .filter(p => {
+                    const ap = p as AvailablePackage & { isActive?: boolean };
+                    return ap.isActive !== false;
+                  })
+                  .map(pkg => (
+                    <button
+                      key={pkg.id}
+                      onClick={() => applyPackage(pkg.id)}
+                      disabled={applyingPkgId === pkg.id}
+                      className="w-full text-left flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg hover:bg-brand-navy-50 border border-transparent hover:border-brand-navy-200 transition-colors disabled:opacity-60"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-slate-800 truncate">{pkg.name}</p>
+                        {pkg.description && (
+                          <p className="text-[10px] text-slate-400 truncate">{pkg.description}</p>
+                        )}
+                      </div>
+                      <span className="text-sm font-semibold text-brand-navy-800 tabular-nums shrink-0">
+                        ₹{Number(pkg.packagePrice).toLocaleString("en-IN")}
+                      </span>
+                    </button>
+                  ))
+              )}
+            </div>
+            <div className="px-4 pb-4">
+              <button onClick={() => setShowPkgPicker(false)}
+                className="w-full h-9 border border-slate-200 text-sm text-slate-600 rounded-lg hover:bg-slate-50">
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}

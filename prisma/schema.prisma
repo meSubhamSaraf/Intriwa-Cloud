@@ -185,7 +185,8 @@ model Garage {
   email     String?
   status    SubscriptionStatus @default(TRIAL)
   createdAt DateTime           @default(now())
-  updatedAt DateTime           @updatedAt
+  updatedAt     DateTime           @updatedAt
+  fuelRatePerKm Decimal?           @default(6) @db.Decimal(10, 2)
 
   profiles          Profile[]
   mechanics         Mechanic[]
@@ -203,6 +204,8 @@ model Garage {
   serviceCatalogueItems  ServiceCatalogueItem[]
   mechanicPenalties      MechanicPenalty[]
   whatsappMessages       WhatsAppMessage[]
+  packages               ServicePackage[]
+  expenses               GarageExpense[]
 }
 
 // ─── Service Catalogue ───────────────────────────────────────────────────────
@@ -514,6 +517,8 @@ model ServiceRequest {
   customerLat     Float?
   customerLng     Float?
   customerAddress String? // reverse-geocoded or as-typed
+  kmTravelled     Int?
+  fuelAllowance   Decimal?     @db.Decimal(10, 2)
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
 
@@ -528,6 +533,7 @@ model ServiceRequest {
   timelineEvents  TimelineEvent[]
   inventoryUsages SRInventoryUsage[]
   invoices        Invoice[]
+  srPackages      SRServicePackage[]
 }
 
 // Labour / service line items on an SR
@@ -589,10 +595,11 @@ model InventoryItem {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  garage        Garage                @relation(fields: [garageId], references: [id])
-  auditEntries  InventoryAuditEntry[]
-  purchaseItems PurchaseOrderItem[]
-  srUsages      SRInventoryUsage[]
+  garage               Garage                @relation(fields: [garageId], references: [id])
+  auditEntries         InventoryAuditEntry[]
+  purchaseItems        PurchaseOrderItem[]
+  srUsages             SRInventoryUsage[]
+  servicePackageItems  ServicePackageItem[]
 }
 
 model PurchaseOrder {
@@ -825,5 +832,76 @@ model WhatsAppMessage {
   customer Customer @relation(fields: [customerId], references: [id])
 
   @@index([customerId])
+  @@index([garageId])
+}
+
+// ─── Service Packages ────────────────────────────────────────────────────────
+
+model ServicePackage {
+  id           String   @id @default(cuid())
+  garageId     String
+  name         String
+  description  String?
+  packagePrice Decimal  @db.Decimal(10, 2)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  garage     Garage               @relation(fields: [garageId], references: [id])
+  items      ServicePackageItem[]
+  srPackages SRServicePackage[]
+}
+
+model ServicePackageItem {
+  id              String   @id @default(cuid())
+  packageId       String
+  description     String
+  mrpPrice        Decimal  @db.Decimal(10, 2)
+  quantity        Int      @default(1)
+  inventoryItemId String?
+
+  package       ServicePackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  inventoryItem InventoryItem? @relation(fields: [inventoryItemId], references: [id])
+}
+
+model SRServicePackage {
+  id           String   @id @default(cuid())
+  srId         String
+  packageId    String
+  packageName  String
+  packagePrice Decimal  @db.Decimal(10, 2)
+  mrpTotal     Decimal  @db.Decimal(10, 2)
+  createdAt    DateTime @default(now())
+
+  sr      ServiceRequest         @relation(fields: [srId], references: [id], onDelete: Cascade)
+  package ServicePackage         @relation(fields: [packageId], references: [id])
+  items   SRServicePackageItem[]
+}
+
+model SRServicePackageItem {
+  id              String  @id @default(cuid())
+  srPackageId     String
+  description     String
+  mrpPrice        Decimal @db.Decimal(10, 2)
+  quantity        Int     @default(1)
+  inventoryItemId String?
+
+  srPackage SRServicePackage @relation(fields: [srPackageId], references: [id], onDelete: Cascade)
+}
+
+// ─── Operating Expenses ──────────────────────────────────────────────────────
+
+model GarageExpense {
+  id          String   @id @default(cuid())
+  garageId    String
+  category    String   // salary | electricity | rent | maintenance | fuel | other
+  description String
+  amount      Decimal  @db.Decimal(10, 2)
+  date        DateTime
+  proofUrl    String?
+  createdAt   DateTime @default(now())
+
+  garage Garage @relation(fields: [garageId], references: [id])
+
   @@index([garageId])
 }

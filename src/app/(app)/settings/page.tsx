@@ -4,13 +4,14 @@ import { useState, useEffect } from "react";
 import {
   User, Users, Wrench, HardHat, Bell, MessageSquare,
   Check, Edit2, Plus, CheckCircle, Wifi, Clock, MapPin, X, Loader2,
+  Fuel,
 } from "lucide-react";
 import { toast } from "sonner";
 type ServiceCategory = "4W" | "2W" | "AC" | "Accessory" | "Body" | "Wash";
 
 // ── Types & constants ─────────────────────────────────────────────
 
-type Tab = "profile" | "team" | "catalog" | "skills" | "templates" | "whatsapp" | "hours" | "areas";
+type Tab = "profile" | "team" | "catalog" | "skills" | "templates" | "whatsapp" | "hours" | "areas" | "operations";
 
 const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: "profile",   label: "Profile",         icon: User },
@@ -19,8 +20,9 @@ const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: "skills",    label: "Mechanic Skills",  icon: HardHat },
   { id: "templates", label: "Notif. Templates", icon: Bell },
   { id: "whatsapp",  label: "WhatsApp",         icon: MessageSquare },
-  { id: "hours",     label: "Working Hours",    icon: Clock },
-  { id: "areas",     label: "Service Areas",    icon: MapPin },
+  { id: "hours",      label: "Working Hours",    icon: Clock },
+  { id: "areas",      label: "Service Areas",    icon: MapPin },
+  { id: "operations", label: "Operations",       icon: Fuel },
 ];
 
 const ROLE_COLORS: Record<string, string> = {
@@ -850,6 +852,70 @@ function AreasTab() {
   );
 }
 
+// ── Tab: Operations ──────────────────────────────────────────────
+
+function OperationsTab() {
+  const [fuelRate, setFuelRate] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/garages/settings")
+      .then((r) => r.json())
+      .then((d) => { setFuelRate(String(d.fuelRatePerKm ?? 6)); })
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function save() {
+    setSaving(true);
+    try {
+      const res = await fetch("/api/garages/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fuelRatePerKm: Number(fuelRate) }),
+      });
+      if (!res.ok) throw new Error();
+      toast.success("Fuel rate saved");
+    } catch { toast.error("Failed to save"); }
+    finally { setSaving(false); }
+  }
+
+  if (loading) return <div className="py-8 text-center text-slate-400 text-sm">Loading…</div>;
+
+  return (
+    <div className="max-w-lg space-y-6">
+      <div className="bg-white border border-slate-200 rounded-lg p-5">
+        <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-4">Fuel Allowance</p>
+        <p className="text-xs text-slate-500 mb-4">
+          For FIELD and SOCIETY service requests, the mechanic enters km travelled at job completion.
+          The fuel allowance (km × rate) is added to their payout automatically.
+        </p>
+        <div className="flex items-end gap-3">
+          <div className="flex-1">
+            <label className="block text-xs font-medium text-slate-600 mb-1">Rate per km (₹)</label>
+            <input
+              type="number" min={0} step={0.5}
+              value={fuelRate}
+              onChange={(e) => setFuelRate(e.target.value)}
+              className="w-full h-9 px-3 text-sm border border-slate-200 rounded-md focus:outline-none focus:border-brand-navy-400"
+            />
+          </div>
+          <button
+            onClick={save} disabled={saving}
+            className="h-9 px-4 bg-brand-navy-800 text-white text-sm font-medium rounded-md hover:bg-brand-navy-700 disabled:opacity-60 flex items-center gap-1.5"
+          >
+            {saving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+            Save
+          </button>
+        </div>
+        <p className="text-[10px] text-slate-400 mt-2">
+          Current: ₹{fuelRate}/km — e.g. 15 km × ₹{fuelRate} = ₹{(15 * Number(fuelRate || 0)).toFixed(0)} allowance
+        </p>
+      </div>
+    </div>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
@@ -862,8 +928,9 @@ export default function SettingsPage() {
     skills:    <SkillsTab />,
     templates: <TemplatesTab />,
     whatsapp:  <WhatsAppTab />,
-    hours:     <HoursTab />,
-    areas:     <AreasTab />,
+    hours:      <HoursTab />,
+    areas:      <AreasTab />,
+    operations: <OperationsTab />,
   };
 
   return (
