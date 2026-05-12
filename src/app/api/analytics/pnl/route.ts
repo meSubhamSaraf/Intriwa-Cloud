@@ -30,8 +30,8 @@ export const GET = withAuth(async (req, { garageId }) => {
   });
   const revenue = Number(revenueAgg._sum.total ?? 0);
 
-  // ── 2. Parts cost: SRInventoryUsage for SRs closed in the period ──────────
-  // unitPrice on SRInventoryUsage is snapshotted from InventoryItem.unitPrice
+  // ── 2. Inventory usage for SRs closed in the period ─────────────────────
+  // costPrice = what we paid (COGS); unitPrice = what we charge (revenue)
   const inventoryUsages = await prisma.sRInventoryUsage.findMany({
     where: {
       serviceRequest: {
@@ -47,7 +47,30 @@ export const GET = withAuth(async (req, { garageId }) => {
     },
   });
 
-  const partsCost = inventoryUsages.reduce((sum, u) => sum + Number(u.total), 0);
+  // Parts COGS: use costPrice if available, else fall back to unitPrice (selling price)
+  const partsCost = inventoryUsages.reduce((sum, u) => {
+    const qty = Number(u.quantity);
+    const cogs = u.costPrice != null ? Number(u.costPrice) * qty : Number(u.total);
+    return sum + cogs;
+  }, 0);
+
+  // Parts revenue (what we billed customers for parts from inventory)
+  const partsRevenue = inventoryUsages.reduce((sum, u) => sum + Number(u.total), 0);
+
+  // ── 2b. Aftermarket parts (AddOns approved on closed SRs) ────────────────
+  const approvedAddons = await prisma.addOn.findMany({
+    where: {
+      status: "APPROVED",
+      serviceRequest: {
+        garageId,
+        status: "CLOSED",
+        closedAt: { gte: periodStart, lte: periodEnd },
+      },
+    },
+    select: { estimatedCost: true, serviceRequestId: true },
+  });
+  const aftermarketCost = approvedAddons.reduce((sum, a) => sum + Number(a.estimatedCost), 0);
+  // Aftermarket revenue is already captured in paid invoices (total revenue above)
 
   // ── 3. Fuel allowances: SRs closed in period ─────────────────────────────
   const srsFuelAgg = await prisma.serviceRequest.aggregate({
@@ -86,7 +109,11 @@ export const GET = withAuth(async (req, { garageId }) => {
   const overtime = Number(incentiveAgg._sum.incentiveAmount ?? 0);
 
   const jobCosts = {
-    parts: partsCost,
+    parts: partsCost + aftermarketCost,
+    partsCogs: partsCost,
+    aftermarketCost,
+    partsRevenue,
+    partsMargin: partsRevenue - partsCost,
     fuelAllowances,
     variablePayouts,
     overtime,
@@ -132,7 +159,8 @@ export const GET = withAuth(async (req, { garageId }) => {
         where: { status: "PAID" },
         select: { total: true },
       },
-      inventoryUsages: { select: { total: true } },
+      inventoryUsages: { select: { quantity: true, costPrice: true, unitPrice: true, total: true } },
+      addOns: { where: { status: "APPROVED" }, select: { estimatedCost: true } },
     },
   });
 
@@ -156,18 +184,25 @@ export const GET = withAuth(async (req, { garageId }) => {
   }
 
   const jobBreakdown = closedSRs.map((sr) => {
-    const invoiceAmount = sr.invoices.reduce((s, inv) => s + Number(inv.total), 0);
-    const srPartsCost   = sr.inventoryUsages.reduce((s, u) => s + Number(u.total), 0);
-    const srFuel        = Number(sr.fuelAllowance ?? 0);
-    const srPayout      = payoutBySr[sr.id] ?? 0;
-    const margin        = invoiceAmount - srPartsCost - srFuel - srPayout;
+    const invoiceAmount  = sr.invoices.reduce((s, inv) => s + Number(inv.total), 0);
+    const srPartsRevenue = sr.inventoryUsages.reduce((s, u) => s + Number(u.total), 0);
+    const srPartsCogs    = sr.inventoryUsages.reduce((s, u) => {
+      const qty  = Number(u.quantity);
+      return s + (u.costPrice != null ? Number(u.costPrice) * qty : Number(u.total));
+    }, 0);
+    const srAftermarket  = sr.addOns.reduce((s, a) => s + Number(a.estimatedCost), 0);
+    const srFuel         = Number(sr.fuelAllowance ?? 0);
+    const srPayout       = payoutBySr[sr.id] ?? 0;
+    const margin         = invoiceAmount - srPartsCogs - srAftermarket - srFuel - srPayout;
 
     return {
       srId:            sr.id,
       srNumber:        sr.srNumber,
       customerName:    sr.customer?.name ?? "—",
       invoiceAmount,
-      partsCost:       srPartsCost,
+      partsRevenue:    srPartsRevenue,
+      partsCogs:       srPartsCogs,
+      aftermarketCost: srAftermarket,
       fuelAllowance:   srFuel,
       mechanicPayout:  srPayout,
       margin,

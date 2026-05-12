@@ -12,11 +12,13 @@ export const POST = withAuthParams<{ id: string }>(async (req, _ctx, { id }) => 
   if (!invItem) return NextResponse.json({ error: "Inventory item not found" }, { status: 404 });
 
   const unitPrice = Number(invItem.unitPrice) || 0;
+  const costPrice = invItem.costPrice != null ? Number(invItem.costPrice) : null;
   const usage = await prisma.sRInventoryUsage.create({
     data: {
       serviceRequestId: id,
       inventoryItemId,
-      quantity:  qty,
+      quantity: qty,
+      costPrice,
       unitPrice,
       total: unitPrice * qty,
     },

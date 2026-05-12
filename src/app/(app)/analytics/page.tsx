@@ -11,7 +11,9 @@ type JobBreakdown = {
   srNumber: string;
   customerName: string;
   invoiceAmount: number;
-  partsCost: number;
+  partsRevenue: number;
+  partsCogs: number;
+  aftermarketCost: number;
   fuelAllowance: number;
   mechanicPayout: number;
   margin: number;
@@ -21,6 +23,10 @@ type PnLData = {
   revenue: number;
   jobCosts: {
     parts: number;
+    partsCogs: number;
+    aftermarketCost: number;
+    partsRevenue: number;
+    partsMargin: number;
     fuelAllowances: number;
     variablePayouts: number;
     overtime: number;
@@ -108,6 +114,7 @@ function PnLRow({
   value,
   sub,
   indent = false,
+  subIndent = false,
   bold = false,
   total = false,
   color,
@@ -116,14 +123,16 @@ function PnLRow({
   value: number;
   sub?: string;
   indent?: boolean;
+  subIndent?: boolean;
   bold?: boolean;
   total?: boolean;
   color?: string;
 }) {
   const valColor = color ?? (total ? (value >= 0 ? "text-green-700" : "text-red-600") : "text-slate-700");
+  const indentClass = subIndent ? "pl-8" : indent ? "pl-4" : "";
   return (
-    <div className={`flex items-center justify-between py-1.5 ${total ? "border-t border-slate-200 mt-1 pt-2.5" : ""} ${indent ? "pl-4" : ""}`}>
-      <span className={`text-sm ${bold ? "font-semibold text-slate-800" : "text-slate-600"} ${indent ? "text-[12px]" : ""}`}>
+    <div className={`flex items-center justify-between py-1.5 ${total ? "border-t border-slate-200 mt-1 pt-2.5" : ""} ${indentClass}`}>
+      <span className={`text-sm ${bold ? "font-semibold text-slate-800" : "text-slate-600"} ${(indent || subIndent) ? "text-[12px]" : ""}`}>
         {label}
       </span>
       <div className="flex items-center gap-2">
@@ -154,7 +163,13 @@ function IncomeStatement({ data }: { data: PnLData }) {
       <Divider />
 
       <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mt-1 mb-1">Variable Job Costs</p>
-      <PnLRow label="Parts & inventory"           value={jobCosts.parts}           indent />
+      <PnLRow label="Parts & Materials"            value={jobCosts.parts}           indent />
+      {(jobCosts.partsCogs > 0 || jobCosts.aftermarketCost > 0) && (
+        <PnLRow label="Inventory COGS"             value={jobCosts.partsCogs}       subIndent />
+      )}
+      {(jobCosts.partsCogs > 0 || jobCosts.aftermarketCost > 0) && (
+        <PnLRow label="Aftermarket Parts"          value={jobCosts.aftermarketCost} subIndent />
+      )}
       <PnLRow label="Mechanic payouts (variable)"  value={jobCosts.variablePayouts} indent />
       <PnLRow label="Fuel allowances"              value={jobCosts.fuelAllowances}  indent />
       <PnLRow label="Bonuses & incentives"         value={jobCosts.overtime}        indent />
@@ -195,6 +210,42 @@ function IncomeStatement({ data }: { data: PnLData }) {
   );
 }
 
+// ── Parts P&L Card ────────────────────────────────────────────────
+
+function PartsPnLCard({ jobCosts }: { jobCosts: PnLData["jobCosts"] }) {
+  const { partsRevenue, partsCogs, partsMargin, aftermarketCost } = jobCosts;
+  return (
+    <div className="bg-white border border-slate-200 rounded-lg p-4">
+      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-4">Parts P&L</p>
+      <div className="space-y-1">
+        <div className="flex items-center justify-between py-1.5">
+          <span className="text-sm text-slate-600">Parts Revenue</span>
+          <span className="tabular-nums text-sm text-slate-700">{fmtRupee(partsRevenue)}</span>
+        </div>
+        <div className="flex items-center justify-between py-1.5">
+          <span className="text-sm text-slate-600">Parts COGS</span>
+          <span className="tabular-nums text-sm text-slate-700">{fmtRupee(partsCogs)}</span>
+        </div>
+        <div className="flex items-center justify-between py-1.5 border-t border-slate-200 mt-1 pt-2.5">
+          <span className="text-sm font-semibold text-slate-800">Parts Margin</span>
+          <span className={`tabular-nums text-sm font-bold ${partsMargin >= 0 ? "text-green-700" : "text-red-600"}`}>
+            {fmtRupee(partsMargin)}
+          </span>
+        </div>
+        {aftermarketCost > 0 && (
+          <div className="flex items-center justify-between py-1.5">
+            <span className="text-sm text-slate-600">Aftermarket Cost</span>
+            <span className="tabular-nums text-sm text-slate-700">{fmtRupee(aftermarketCost)}</span>
+          </div>
+        )}
+      </div>
+      <p className="text-[11px] text-slate-400 mt-3 leading-relaxed">
+        Parts margin only reflects inventory items where cost price is set.
+      </p>
+    </div>
+  );
+}
+
 // ── Job Breakdown Table ───────────────────────────────────────────
 
 function marginColor(margin: number, invoiceAmount: number) {
@@ -210,6 +261,8 @@ function JobBreakdownTable({ jobs }: { jobs: JobBreakdown[] }) {
     .sort((a, b) => b.margin - a.margin)
     .slice(0, 10);
 
+  const showAftermarket = sorted.some((j) => j.aftermarketCost > 0);
+
   if (sorted.length === 0) {
     return (
       <div className="bg-white border border-slate-200 rounded-lg p-6 text-center text-slate-400 text-sm">
@@ -217,6 +270,8 @@ function JobBreakdownTable({ jobs }: { jobs: JobBreakdown[] }) {
       </div>
     );
   }
+
+  const headers = ["SR#", "Customer", "Invoice", "Parts COGS", ...(showAftermarket ? ["Aftermarket"] : []), "Fuel", "Mechanic", "Margin"];
 
   return (
     <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
@@ -227,7 +282,7 @@ function JobBreakdownTable({ jobs }: { jobs: JobBreakdown[] }) {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50">
-              {["SR#", "Customer", "Invoice", "Parts", "Fuel", "Mechanic", "Margin"].map((h) => (
+              {headers.map((h) => (
                 <th key={h} className="px-3 py-2.5 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">
                   {h}
                 </th>
@@ -245,7 +300,10 @@ function JobBreakdownTable({ jobs }: { jobs: JobBreakdown[] }) {
                   <td className="px-3 py-2.5 text-[11px] font-mono text-slate-500 whitespace-nowrap">{job.srNumber}</td>
                   <td className="px-3 py-2.5 text-[12px] text-slate-700 max-w-[120px] truncate">{job.customerName}</td>
                   <td className="px-3 py-2.5 text-[12px] font-medium tabular-nums text-slate-800 whitespace-nowrap">{fmtRupee(job.invoiceAmount)}</td>
-                  <td className="px-3 py-2.5 text-[12px] tabular-nums text-slate-500 whitespace-nowrap">{fmtRupee(job.partsCost)}</td>
+                  <td className="px-3 py-2.5 text-[12px] tabular-nums text-slate-500 whitespace-nowrap">{fmtRupee(job.partsCogs)}</td>
+                  {showAftermarket && (
+                    <td className="px-3 py-2.5 text-[12px] tabular-nums text-slate-500 whitespace-nowrap">{fmtRupee(job.aftermarketCost)}</td>
+                  )}
                   <td className="px-3 py-2.5 text-[12px] tabular-nums text-slate-500 whitespace-nowrap">{fmtRupee(job.fuelAllowance)}</td>
                   <td className="px-3 py-2.5 text-[12px] tabular-nums text-slate-500 whitespace-nowrap">{fmtRupee(job.mechanicPayout)}</td>
                   <td className="px-3 py-2.5 whitespace-nowrap">
@@ -418,6 +476,9 @@ export default function AnalyticsPage() {
             <IncomeStatement data={data} />
             <JobBreakdownTable jobs={data.jobBreakdown} />
           </div>
+
+          {/* Parts P&L */}
+          <PartsPnLCard jobCosts={data.jobCosts} />
         </>
       )}
     </div>

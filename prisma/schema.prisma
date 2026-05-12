@@ -273,6 +273,7 @@ model Customer {
   address   String?
   mapLink   String?
   notes     String?
+  isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -589,7 +590,9 @@ model InventoryItem {
   category   String?
   unit       String   @default("pcs")
   stockQty   Decimal  @default(0) @db.Decimal(10, 3)
+  costPrice  Decimal? @db.Decimal(10, 2)
   unitPrice  Decimal  @default(0) @db.Decimal(10, 2)
+  mrp        Decimal? @db.Decimal(10, 2)
   lowStockAt Decimal? @db.Decimal(10, 3)
   isActive   Boolean  @default(true)
   createdAt  DateTime @default(now())
@@ -648,12 +651,13 @@ model InventoryAuditEntry {
 }
 
 model SRInventoryUsage {
-  id               String  @id @default(cuid())
+  id               String   @id @default(cuid())
   serviceRequestId String
   inventoryItemId  String
-  quantity         Decimal @db.Decimal(10, 3)
-  unitPrice        Decimal @db.Decimal(10, 2)
-  total            Decimal @db.Decimal(10, 2)
+  quantity         Decimal  @db.Decimal(10, 3)
+  costPrice        Decimal? @db.Decimal(10, 2)
+  unitPrice        Decimal  @db.Decimal(10, 2)
+  total            Decimal  @db.Decimal(10, 2)
 
   serviceRequest ServiceRequest @relation(fields: [serviceRequestId], references: [id])
   inventoryItem  InventoryItem  @relation(fields: [inventoryItemId], references: [id])

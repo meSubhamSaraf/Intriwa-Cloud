@@ -1,5 +1,6 @@
-// GET   /api/mechanics/[id]  — mechanic with skills, recent jobs, attendance
-// PATCH /api/mechanics/[id]  — update mechanic details (syncs email to Supabase auth if changed)
+// GET    /api/mechanics/[id]  — mechanic with skills, recent jobs, attendance
+// PATCH  /api/mechanics/[id]  — update mechanic details (syncs email to Supabase auth if changed)
+// DELETE /api/mechanics/[id]  — soft-delete (sets isActive=false)
 
 import { NextResponse } from "next/server";
 import { withAuthParams } from "@/app/api/_helpers/auth";
@@ -51,4 +52,11 @@ export const PATCH = withAuthParams<{ id: string }>(async (req, { garageId }, { 
   }
 
   return NextResponse.json(updated);
+});
+
+export const DELETE = withAuthParams<{ id: string }>(async (_req, { garageId }, { id }) => {
+  const mechanic = await prisma.mechanic.findFirst({ where: { id, garageId } });
+  if (!mechanic) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  await prisma.mechanic.update({ where: { id }, data: { isActive: false } });
+  return NextResponse.json({ ok: true });
 });

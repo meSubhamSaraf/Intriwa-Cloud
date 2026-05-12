@@ -12,6 +12,7 @@ import { toast } from "sonner";
 type InventoryItem = {
   id: string; name: string; category: string; unit: string;
   currentStock: number; minStock: number; unitCost: number;
+  costPrice: number | null; mrp: number | null;
   garageId: string; lastUpdated: string;
 };
 
@@ -30,6 +31,7 @@ const TODAY = new Date().toISOString().slice(0, 10);
 type DbInventoryItem = {
   id: string; garageId: string; name: string; category: string | null;
   unit: string; stockQty: string | number; unitPrice: string | number;
+  costPrice: string | number | null; mrp: string | number | null;
   lowStockAt: string | number | null; updatedAt: string;
 };
 
@@ -42,6 +44,8 @@ function dbToInventoryItem(i: DbInventoryItem): InventoryItem {
     currentStock: Number(i.stockQty),
     minStock: Number(i.lowStockAt ?? 0),
     unitCost: Number(i.unitPrice),
+    costPrice: i.costPrice != null ? Number(i.costPrice) : null,
+    mrp: i.mrp != null ? Number(i.mrp) : null,
     garageId: i.garageId,
     lastUpdated: i.updatedAt.slice(0, 10),
   };
@@ -75,6 +79,9 @@ function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 }
 
+const ITEM_CATEGORIES = ["Parts", "Oil", "Filter", "Tyre", "Battery", "Accessory", "Other"];
+const ITEM_UNITS = ["pcs", "ltr", "kg", "set", "pair"];
+
 const CATEGORIES = ["All", "Lubricants", "Filters", "Fluids", "Cleaning", "Accessories", "Spare Parts", "Equipment"];
 
 type StockFilter = "all" | "low" | "out";
@@ -103,6 +110,7 @@ const AUDIT_CONFIG: Record<AuditType, { label: string; color: string; icon: Reac
   purchase_recorded: { label: "Purchase Recorded", color: "text-violet-700 bg-violet-50 border-violet-200", icon: ShoppingCart },
 };
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function dbAuditToEntry(a: any): AuditEntry {
   const isPrice = a.type === "PRICE_UPDATE";
   const type: AuditType =
@@ -127,6 +135,194 @@ function fmtTimestamp(iso: string) {
   return new Date(iso).toLocaleString("en-IN", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: true });
 }
 
+// ── Add Item Modal ─────────────────────────────────────────────────
+
+type AddItemForm = {
+  name: string; category: string; unit: string;
+  costPrice: string; unitPrice: string; mrp: string; lowStockAt: string;
+};
+
+function AddItemModal({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void;
+  onCreated: (item: InventoryItem) => void;
+}) {
+  const [form, setForm] = useState<AddItemForm>({
+    name: "", category: "Parts", unit: "pcs",
+    costPrice: "", unitPrice: "0", mrp: "", lowStockAt: "",
+  });
+  const [saving, setSaving] = useState(false);
+
+  function set(key: keyof AddItemForm, value: string) {
+    setForm((f) => ({ ...f, [key]: value }));
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!form.name.trim()) return;
+    setSaving(true);
+    try {
+      const body: Record<string, unknown> = {
+        name: form.name.trim(),
+        category: form.category,
+        unit: form.unit,
+        unitPrice: Number(form.unitPrice) || 0,
+      };
+      if (form.costPrice !== "") body.costPrice = Number(form.costPrice);
+      if (form.mrp !== "") body.mrp = Number(form.mrp);
+      if (form.lowStockAt !== "") body.lowStockAt = Number(form.lowStockAt);
+
+      const res = await fetch("/api/inventory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { error?: string };
+        toast.error(err.error ?? "Failed to create item");
+        return;
+      }
+      const created: DbInventoryItem = await res.json();
+      onCreated(dbToInventoryItem(created));
+      toast.success(`"${created.name}" added to inventory`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md flex flex-col max-h-[90vh]">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 shrink-0">
+          <div className="flex items-center gap-2">
+            <Package className="w-4 h-4 text-brand-navy-600" />
+            <h3 className="font-semibold text-slate-800 text-sm">Add Inventory Item</h3>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Body */}
+        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-5 space-y-4">
+          {/* Name */}
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1.5">
+              Name <span className="text-red-500">*</span>
+            </label>
+            <input
+              required
+              type="text"
+              value={form.name}
+              onChange={(e) => set("name", e.target.value)}
+              placeholder="e.g. Engine Oil 5W-30"
+              className="w-full h-9 px-3 text-sm border border-slate-200 rounded-md focus:outline-none focus:border-brand-navy-400"
+            />
+          </div>
+
+          {/* Category + Unit */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1.5">Category</label>
+              <select
+                value={form.category}
+                onChange={(e) => set("category", e.target.value)}
+                className="w-full h-9 px-3 text-sm border border-slate-200 rounded-md focus:outline-none focus:border-brand-navy-400 bg-white"
+              >
+                {ITEM_CATEGORIES.map((c) => <option key={c}>{c}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1.5">Unit</label>
+              <select
+                value={form.unit}
+                onChange={(e) => set("unit", e.target.value)}
+                className="w-full h-9 px-3 text-sm border border-slate-200 rounded-md focus:outline-none focus:border-brand-navy-400 bg-white"
+              >
+                {ITEM_UNITS.map((u) => <option key={u}>{u}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {/* Prices */}
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1.5">Cost Price ₹</label>
+              <input
+                type="number"
+                min={0}
+                value={form.costPrice}
+                onChange={(e) => set("costPrice", e.target.value)}
+                placeholder="—"
+                className="w-full h-9 px-3 text-sm border border-slate-200 rounded-md focus:outline-none focus:border-brand-navy-400"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1.5">
+                Sell Price ₹ <span className="text-red-500">*</span>
+              </label>
+              <input
+                required
+                type="number"
+                min={0}
+                value={form.unitPrice}
+                onChange={(e) => set("unitPrice", e.target.value)}
+                placeholder="0"
+                className="w-full h-9 px-3 text-sm border border-slate-200 rounded-md focus:outline-none focus:border-brand-navy-400"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1.5">MRP ₹</label>
+              <input
+                type="number"
+                min={0}
+                value={form.mrp}
+                onChange={(e) => set("mrp", e.target.value)}
+                placeholder="—"
+                className="w-full h-9 px-3 text-sm border border-slate-200 rounded-md focus:outline-none focus:border-brand-navy-400"
+              />
+            </div>
+          </div>
+
+          {/* Min Stock */}
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1.5">Min Stock (alert threshold)</label>
+            <input
+              type="number"
+              min={0}
+              value={form.lowStockAt}
+              onChange={(e) => set("lowStockAt", e.target.value)}
+              placeholder="e.g. 5"
+              className="w-full h-9 px-3 text-sm border border-slate-200 rounded-md focus:outline-none focus:border-brand-navy-400"
+            />
+          </div>
+        </form>
+
+        {/* Footer */}
+        <div className="px-5 py-4 border-t border-slate-100 flex gap-3 shrink-0">
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 h-10 border border-slate-200 text-sm text-slate-600 rounded-xl hover:bg-slate-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSubmit as unknown as React.MouseEventHandler}
+            disabled={saving || !form.name.trim()}
+            className="flex-1 h-10 bg-brand-navy-800 text-white text-sm font-medium rounded-xl hover:bg-brand-navy-700 disabled:opacity-60"
+          >
+            {saving ? "Adding…" : "Add Item"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Item detail drawer ─────────────────────────────────────────────
 
 function ItemDetailDrawer({
@@ -134,11 +330,13 @@ function ItemDetailDrawer({
   audits,
   onClose,
   onUpdate,
+  onMetaUpdate,
 }: {
   item: InventoryItem;
   audits: AuditEntry[];
   onClose: () => void;
   onUpdate: (itemId: string, type: AuditType, oldVal: number, newVal: number, comment: string, hasFile: boolean, fileName?: string) => void;
+  onMetaUpdate: (itemId: string, costPrice: number | null, mrp: number | null) => void;
 }) {
   const [actionTab, setActionTab] = useState<"add_stock" | "adjust_price">("add_stock");
   const [inputValue, setInputValue] = useState("");
@@ -147,7 +345,27 @@ function ItemDetailDrawer({
   const [fileName, setFileName] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const canSubmit = (comment.trim().length > 0 || fileUploaded) && inputValue !== "";
+  // Price editing state for all 3 prices
+  const [editCostPrice, setEditCostPrice] = useState(item.costPrice != null ? String(item.costPrice) : "");
+  const [editSellPrice, setEditSellPrice] = useState(String(item.unitCost));
+  const [editMrp, setEditMrp] = useState(item.mrp != null ? String(item.mrp) : "");
+  const [priceSaving, setPriceSaving] = useState(false);
+
+  const canSubmitStock = (comment.trim().length > 0 || fileUploaded) && inputValue !== "" && actionTab === "add_stock";
+  const canSubmitSellPrice = (comment.trim().length > 0 || fileUploaded) && inputValue !== "" && actionTab === "adjust_price";
+  const canSubmit = canSubmitStock || canSubmitSellPrice;
+
+  async function handleSellPriceUpdate() {
+    if (!canSubmitSellPrice) return;
+    const val = parseFloat(inputValue);
+    if (isNaN(val) || val < 0) return;
+    onUpdate(item.id, "price_changed", item.unitCost, val, comment.trim(), fileUploaded, fileName || undefined);
+    toast.success(`Sell price updated to ${fmtRupee(val)} for ${item.name}`);
+    setInputValue("");
+    setComment("");
+    setFileUploaded(false);
+    setFileName("");
+  }
 
   function handleSubmit() {
     if (!canSubmit) return;
@@ -157,14 +375,34 @@ function ItemDetailDrawer({
     if (actionTab === "add_stock") {
       onUpdate(item.id, "stock_added", item.currentStock, item.currentStock + val, comment.trim(), fileUploaded, fileName || undefined);
       toast.success(`+${val} ${item.unit} added to ${item.name}`);
+      setInputValue("");
+      setComment("");
+      setFileUploaded(false);
+      setFileName("");
     } else {
-      onUpdate(item.id, "price_changed", item.unitCost, val, comment.trim(), fileUploaded, fileName || undefined);
-      toast.success(`Price updated to ${fmtRupee(val)} for ${item.name}`);
+      handleSellPriceUpdate();
     }
-    setInputValue("");
-    setComment("");
-    setFileUploaded(false);
-    setFileName("");
+  }
+
+  async function handleSaveCostMrp() {
+    setPriceSaving(true);
+    try {
+      const body: Record<string, number | null> = {};
+      body.costPrice = editCostPrice !== "" ? Number(editCostPrice) : null;
+      body.mrp = editMrp !== "" ? Number(editMrp) : null;
+      const res = await fetch(`/api/inventory/${item.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error("Failed");
+      onMetaUpdate(item.id, body.costPrice, body.mrp);
+      toast.success("Cost & MRP updated");
+    } catch {
+      toast.error("Failed to save cost/MRP");
+    } finally {
+      setPriceSaving(false);
+    }
   }
 
   const itemAudits = audits.filter((a) => a.itemId === item.id).sort((a, b) => b.timestamp.localeCompare(a.timestamp));
@@ -195,18 +433,28 @@ function ItemDetailDrawer({
             </button>
           </div>
 
-          {/* Current stats */}
-          <div className="grid grid-cols-3 gap-3 mt-3">
-            {[
-              { label: "In Stock", value: `${item.currentStock} ${item.unit}` },
-              { label: "Min Stock", value: `${item.minStock} ${item.unit}` },
-              { label: "Unit Cost", value: fmtRupee(item.unitCost) },
-            ].map(({ label, value }) => (
-              <div key={label} className="bg-slate-50 rounded-lg px-3 py-2 border border-slate-100">
-                <p className="text-[9px] font-medium text-slate-400 uppercase tracking-wide">{label}</p>
-                <p className="text-sm font-bold text-slate-800 mt-0.5">{value}</p>
-              </div>
-            ))}
+          {/* Current stats — show all 3 prices */}
+          <div className="grid grid-cols-2 gap-2 mt-3">
+            <div className="bg-slate-50 rounded-lg px-3 py-2 border border-slate-100">
+              <p className="text-[9px] font-medium text-slate-400 uppercase tracking-wide">In Stock</p>
+              <p className="text-sm font-bold text-slate-800 mt-0.5">{item.currentStock} {item.unit}</p>
+            </div>
+            <div className="bg-slate-50 rounded-lg px-3 py-2 border border-slate-100">
+              <p className="text-[9px] font-medium text-slate-400 uppercase tracking-wide">Min Stock</p>
+              <p className="text-sm font-bold text-slate-800 mt-0.5">{item.minStock} {item.unit}</p>
+            </div>
+            <div className="bg-slate-50 rounded-lg px-3 py-2 border border-slate-100">
+              <p className="text-[9px] font-medium text-slate-400 uppercase tracking-wide">Cost Price</p>
+              <p className="text-sm font-bold text-slate-800 mt-0.5">{item.costPrice != null ? fmtRupee(item.costPrice) : "—"}</p>
+            </div>
+            <div className="bg-slate-50 rounded-lg px-3 py-2 border border-slate-100">
+              <p className="text-[9px] font-medium text-slate-400 uppercase tracking-wide">Sell Price</p>
+              <p className="text-sm font-bold text-slate-800 mt-0.5">{fmtRupee(item.unitCost)}</p>
+            </div>
+            <div className="bg-slate-50 rounded-lg px-3 py-2 border border-slate-100 col-span-2">
+              <p className="text-[9px] font-medium text-slate-400 uppercase tracking-wide">MRP</p>
+              <p className="text-sm font-bold text-slate-800 mt-0.5">{item.mrp != null ? fmtRupee(item.mrp) : "—"}</p>
+            </div>
           </div>
         </div>
 
@@ -219,7 +467,7 @@ function ItemDetailDrawer({
             <div className="flex gap-1 mb-3 bg-slate-100 rounded-lg p-0.5">
               {([
                 { id: "add_stock",     label: "Add Stock" },
-                { id: "adjust_price", label: "Update Price" },
+                { id: "adjust_price", label: "Update Sell Price" },
               ] as const).map((t) => (
                 <button
                   key={t.id}
@@ -234,7 +482,7 @@ function ItemDetailDrawer({
             {/* Input */}
             <div className="mb-3">
               <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wide mb-1 block">
-                {actionTab === "add_stock" ? `Quantity to Add (${item.unit})` : "New Unit Price (₹)"}
+                {actionTab === "add_stock" ? `Quantity to Add (${item.unit})` : "New Sell Price (₹)"}
               </label>
               <input
                 type="number"
@@ -252,7 +500,7 @@ function ItemDetailDrawer({
               )}
               {actionTab === "adjust_price" && inputValue && (
                 <p className="text-[10px] text-slate-400 mt-1">
-                  Price will update: {fmtRupee(item.unitCost)} → <span className="font-semibold text-slate-600">{fmtRupee(parseFloat(inputValue) || 0)}</span>
+                  Sell price will update: {fmtRupee(item.unitCost)} → <span className="font-semibold text-slate-600">{fmtRupee(parseFloat(inputValue) || 0)}</span>
                 </p>
               )}
             </div>
@@ -315,7 +563,43 @@ function ItemDetailDrawer({
               disabled={!canSubmit}
               className={`w-full py-2 text-sm font-medium rounded-lg transition-colors ${canSubmit ? "bg-brand-navy-800 text-white hover:bg-brand-navy-700" : "bg-slate-100 text-slate-400 cursor-not-allowed"}`}
             >
-              {actionTab === "add_stock" ? "Add Stock" : "Update Price"}
+              {actionTab === "add_stock" ? "Add Stock" : "Update Sell Price"}
+            </button>
+          </div>
+
+          {/* Cost & MRP editor */}
+          <div className="px-5 py-4 border-b border-slate-100">
+            <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide mb-3">Update Cost & MRP</p>
+            <div className="grid grid-cols-2 gap-3 mb-3">
+              <div>
+                <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wide mb-1 block">Cost Price ₹</label>
+                <input
+                  type="number"
+                  min={0}
+                  value={editCostPrice}
+                  onChange={(e) => setEditCostPrice(e.target.value)}
+                  placeholder="—"
+                  className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-brand-navy-400"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wide mb-1 block">MRP ₹</label>
+                <input
+                  type="number"
+                  min={0}
+                  value={editMrp}
+                  onChange={(e) => setEditMrp(e.target.value)}
+                  placeholder="—"
+                  className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-brand-navy-400"
+                />
+              </div>
+            </div>
+            <button
+              onClick={handleSaveCostMrp}
+              disabled={priceSaving}
+              className="w-full py-2 text-sm font-medium rounded-lg bg-brand-navy-800 text-white hover:bg-brand-navy-700 disabled:opacity-60 transition-colors"
+            >
+              {priceSaving ? "Saving…" : "Save Cost & MRP"}
             </button>
           </div>
 
@@ -471,7 +755,7 @@ function AddPurchaseDrawer({
 
           {/* Bill upload */}
           <div>
-            <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wide mb-1 block">Bill / Invoice Image</label>
+            <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wide mb-1 block">Bill / Invoice Image (optional)</label>
             <input ref={fileRef} type="file" accept="image/*,.pdf" className="hidden" onChange={() => { setBillUploaded(true); toast.success("Bill uploaded (mock)"); }} />
             {billUploaded ? (
               <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
@@ -622,7 +906,8 @@ function InventoryPageInner() {
   const [query, setQuery] = useState("");
   const [catFilter, setCatFilter] = useState("All");
   const [stockFilter, setStockFilter] = useState<StockFilter>("all");
-  const [showDrawer, setShowDrawer] = useState(false);
+  const [showPurchaseDrawer, setShowPurchaseDrawer] = useState(false);
+  const [showAddItemModal, setShowAddItemModal] = useState(false);
   const [dbLoading, setDbLoading] = useState(true);
 
   const [stock, setStock] = useState<InventoryItem[]>([]);
@@ -655,7 +940,7 @@ function InventoryPageInner() {
 
   const lowStockCount = stock.filter((i) => i.currentStock <= i.minStock && i.currentStock > 0).length;
   const outCount = stock.filter((i) => i.currentStock === 0).length;
-  const totalValue = stock.reduce((s, i) => s + i.currentStock * i.unitCost, 0);
+  const totalValue = stock.reduce((s, i) => s + i.currentStock * (i.costPrice ?? i.unitCost), 0);
 
   const filteredStock = stock.filter((i) => {
     if (catFilter !== "All" && i.category !== catFilter) return false;
@@ -702,6 +987,11 @@ function InventoryPageInner() {
     }
   }
 
+  function handleMetaUpdate(itemId: string, costPrice: number | null, mrp: number | null) {
+    setStock((s) => s.map((i) => i.id !== itemId ? i : { ...i, costPrice, mrp }));
+    setOpenItem((prev) => prev && prev.id === itemId ? { ...prev, costPrice, mrp } : prev);
+  }
+
   async function handleSavePurchase(vendor: string, date: string, lines: DraftLine[], hasBill: boolean) {
     const poItems: PurchaseOrderItem[] = lines.map((l, i) => ({
       itemId: stock.find((s) => s.name === l.itemName)?.id ?? `new-${i}`,
@@ -727,7 +1017,7 @@ function InventoryPageInner() {
       })
     );
 
-    setShowDrawer(false);
+    setShowPurchaseDrawer(false);
     toast.success(`Purchase saved · ${fmtRupee(total)} · Stock updated`);
 
     // Persist PO header to API
@@ -769,13 +1059,23 @@ function InventoryPageInner() {
           audits={allAudits}
           onClose={() => setOpenItem(null)}
           onUpdate={handleItemUpdate}
+          onMetaUpdate={handleMetaUpdate}
         />
       )}
-      {showDrawer && (
+      {showPurchaseDrawer && (
         <AddPurchaseDrawer
           items={stock}
-          onClose={() => setShowDrawer(false)}
+          onClose={() => setShowPurchaseDrawer(false)}
           onSave={handleSavePurchase}
+        />
+      )}
+      {showAddItemModal && (
+        <AddItemModal
+          onClose={() => setShowAddItemModal(false)}
+          onCreated={(item) => {
+            setStock((s) => [item, ...s]);
+            setShowAddItemModal(false);
+          }}
         />
       )}
 
@@ -785,12 +1085,20 @@ function InventoryPageInner() {
           <h1 className="text-base font-semibold text-slate-800">Inventory</h1>
           <p className="text-[11px] text-slate-500">Purchase register · stock levels · usage tracking</p>
         </div>
-        <button
-          onClick={() => setShowDrawer(true)}
-          className="flex items-center gap-1.5 text-sm font-medium text-white bg-brand-navy-800 hover:bg-brand-navy-700 px-3 py-1.5 rounded-lg transition-colors"
-        >
-          <Plus className="w-4 h-4" /> Add Purchase
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowAddItemModal(true)}
+            className="flex items-center gap-1.5 text-sm font-medium text-white bg-brand-navy-800 hover:bg-brand-navy-700 px-3 py-1.5 rounded-lg transition-colors"
+          >
+            <Plus className="w-4 h-4" /> Add Item
+          </button>
+          <button
+            onClick={() => setShowPurchaseDrawer(true)}
+            className="flex items-center gap-1.5 text-sm font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 px-3 py-1.5 rounded-lg transition-colors"
+          >
+            <ShoppingCart className="w-4 h-4" /> Add Purchase
+          </button>
+        </div>
       </div>
 
       {/* KPI row */}
@@ -880,7 +1188,7 @@ function InventoryPageInner() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50">
-                  {["Item", "Category", "Unit", "In Stock", "Min Stock", "Unit Cost", "Status", ""].map((h) => (
+                  {["Item", "Category", "Unit", "In Stock", "Min", "Cost", "Sell", "MRP", "Status", ""].map((h) => (
                     <th key={h} className="px-3 py-2.5 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -894,7 +1202,7 @@ function InventoryPageInner() {
                   >
                     <td className="px-3 py-2.5">
                       <p className="font-medium text-slate-800 text-[13px] group-hover:text-brand-navy-700 transition-colors">{item.name}</p>
-                      <p className="text-[10px] text-slate-400">Updated {fmtDate(item.lastUpdated)} · {allAudits.filter((a) => a.itemId === item.id).length} audit entries</p>
+                      <p className="text-[10px] text-slate-400">Updated {fmtDate(item.lastUpdated)}</p>
                     </td>
                     <td className="px-3 py-2.5 text-[11px] text-slate-500">{item.category}</td>
                     <td className="px-3 py-2.5 text-[11px] text-slate-500">{item.unit}</td>
@@ -902,7 +1210,13 @@ function InventoryPageInner() {
                       <span className="text-sm font-semibold text-slate-700 tabular-nums">{item.currentStock}</span>
                     </td>
                     <td className="px-3 py-2.5 text-[12px] text-slate-500 tabular-nums">{item.minStock}</td>
-                    <td className="px-3 py-2.5 text-[12px] text-slate-600 tabular-nums">{fmtRupee(item.unitCost)}</td>
+                    <td className="px-3 py-2.5 text-[12px] text-slate-500 tabular-nums">
+                      {item.costPrice != null ? fmtRupee(item.costPrice) : <span className="text-slate-300">—</span>}
+                    </td>
+                    <td className="px-3 py-2.5 text-[12px] text-slate-700 font-medium tabular-nums">{fmtRupee(item.unitCost)}</td>
+                    <td className="px-3 py-2.5 text-[12px] text-slate-500 tabular-nums">
+                      {item.mrp != null ? fmtRupee(item.mrp) : <span className="text-slate-300">—</span>}
+                    </td>
                     <td className="px-3 py-2.5">
                       <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${stockColor(item)}`}>
                         {item.currentStock === 0 ? "Out of Stock" : item.currentStock <= item.minStock ? "Low Stock" : "OK"}
@@ -930,6 +1244,12 @@ function InventoryPageInner() {
       {/* ── Purchase history tab ──────────────────────────────── */}
       {tab === "purchases" && (
         <div className="space-y-3">
+          {orders.length === 0 && (
+            <div className="py-10 text-center text-slate-400">
+              <ShoppingCart className="w-8 h-8 mx-auto mb-2 opacity-30" />
+              <p className="text-sm">No purchases recorded yet.</p>
+            </div>
+          )}
           {orders.map((po) => (
             <div key={po.id} className="bg-white border border-slate-200 rounded-xl p-4">
               <div className="flex items-start justify-between gap-3 mb-3">
@@ -941,8 +1261,8 @@ function InventoryPageInner() {
                         <FileText className="w-3 h-3" /> Bill attached
                       </span>
                     ) : (
-                      <span className="text-[10px] text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full font-medium">
-                        Bill pending
+                      <span className="text-[10px] text-slate-500 bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded-full font-medium">
+                        No bill
                       </span>
                     )}
                   </div>

@@ -1,5 +1,6 @@
-// GET   /api/customers/[id]  — customer with vehicles and service history
-// PATCH /api/customers/[id]  — update customer details
+// GET    /api/customers/[id]  — customer with vehicles and service history
+// PATCH  /api/customers/[id]  — update customer details
+// DELETE /api/customers/[id]  — soft-delete (sets isActive=false)
 
 import { NextResponse } from "next/server";
 import { withAuthParams } from "@/app/api/_helpers/auth";
@@ -64,4 +65,11 @@ export const PATCH = withAuthParams<{ id: string }>(async (req, _ctx, { id }) =>
   ]);
 
   return NextResponse.json({ ...updated, mapLink: mapLink ?? null });
+});
+
+export const DELETE = withAuthParams<{ id: string }>(async (_req, { garageId }, { id }) => {
+  const customer = await prisma.customer.findFirst({ where: { id, garageId } });
+  if (!customer) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  await prisma.customer.update({ where: { id }, data: { isActive: false } });
+  return NextResponse.json({ ok: true });
 });

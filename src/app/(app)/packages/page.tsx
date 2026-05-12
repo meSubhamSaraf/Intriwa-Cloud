@@ -17,6 +17,13 @@ type PackageItem = {
   inventoryItemId?: string | null;
 };
 
+type InvDropdownItem = {
+  id: string;
+  name: string;
+  unitPrice: number;
+  mrp: number | null;
+};
+
 type ServicePackage = {
   id: string;
   name: string;
@@ -147,6 +154,14 @@ function PackageModal({
     initial?.items.length ? initial.items.map(i => ({ ...i })) : [emptyItem()]
   );
   const [saving, setSaving] = useState(false);
+  const [invItems, setInvItems] = useState<InvDropdownItem[]>([]);
+
+  useEffect(() => {
+    fetch("/api/inventory")
+      .then(r => r.ok ? r.json() : [])
+      .then((data: InvDropdownItem[]) => setInvItems(data))
+      .catch(() => {});
+  }, []);
 
   const mrpTotal = calcMrpTotal(items);
   const pkgPriceNum = Number(packagePrice) || 0;
@@ -284,44 +299,86 @@ function PackageModal({
 
             <div className="space-y-2">
               {items.map((item, idx) => (
-                <div key={idx} className="flex items-center gap-2 bg-slate-50 rounded-md px-3 py-2">
-                  <div className="flex-1 min-w-0">
-                    <input
-                      type="text"
-                      value={item.description}
-                      onChange={e => updateItem(idx, "description", e.target.value)}
-                      placeholder="Item description…"
-                      className="w-full h-7 px-2 text-xs border border-slate-200 rounded focus:outline-none focus:border-brand-navy-400 bg-white"
-                    />
+                <div key={idx} className="bg-slate-50 rounded-md px-3 py-2 space-y-1.5">
+                  {/* Inventory dropdown */}
+                  <div className="flex items-center gap-2">
+                    <label className="text-[10px] text-slate-400 shrink-0 w-28">From Inventory</label>
+                    <select
+                      value={item.inventoryItemId ?? ""}
+                      onChange={e => {
+                        const selectedId = e.target.value;
+                        if (!selectedId) {
+                          updateItem(idx, "inventoryItemId", "");
+                          return;
+                        }
+                        const found = invItems.find(i => i.id === selectedId);
+                        if (found) {
+                          setItems(prev => prev.map((it, i) => i !== idx ? it : {
+                            ...it,
+                            inventoryItemId: found.id,
+                            description: found.name,
+                            mrpPrice: found.mrp != null ? found.mrp : found.unitPrice,
+                          }));
+                        }
+                      }}
+                      className="flex-1 h-7 px-2 text-xs border border-slate-200 rounded focus:outline-none focus:border-brand-navy-400 bg-white"
+                    >
+                      <option value="">— optional —</option>
+                      {invItems.map(i => (
+                        <option key={i.id} value={i.id}>{i.name}</option>
+                      ))}
+                    </select>
+                    {item.inventoryItemId && (
+                      <button
+                        type="button"
+                        onClick={() => setItems(prev => prev.map((it, i) => i !== idx ? it : { ...it, inventoryItemId: null }))}
+                        className="text-slate-300 hover:text-slate-500 shrink-0"
+                        title="Clear inventory link"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    )}
                   </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <span className="text-[10px] text-slate-400">MRP ₹</span>
-                    <input
-                      type="number"
-                      min={0}
-                      value={item.mrpPrice || ""}
-                      onChange={e => updateItem(idx, "mrpPrice", Number(e.target.value))}
-                      placeholder="0"
-                      className="w-16 h-7 px-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:border-brand-navy-400 bg-white"
-                    />
+                  {/* Description + Price + Qty row */}
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 min-w-0">
+                      <input
+                        type="text"
+                        value={item.description}
+                        onChange={e => updateItem(idx, "description", e.target.value)}
+                        placeholder="Item description…"
+                        className="w-full h-7 px-2 text-xs border border-slate-200 rounded focus:outline-none focus:border-brand-navy-400 bg-white"
+                      />
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <span className="text-[10px] text-slate-400">MRP ₹</span>
+                      <input
+                        type="number"
+                        min={0}
+                        value={item.mrpPrice || ""}
+                        onChange={e => updateItem(idx, "mrpPrice", Number(e.target.value))}
+                        placeholder="0"
+                        className="w-16 h-7 px-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:border-brand-navy-400 bg-white"
+                      />
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <span className="text-[10px] text-slate-400">Qty</span>
+                      <input
+                        type="number"
+                        min={1}
+                        value={item.quantity}
+                        onChange={e => updateItem(idx, "quantity", Number(e.target.value))}
+                        className="w-10 h-7 px-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:border-brand-navy-400 bg-white"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removeItem(idx)}
+                      className="text-slate-300 hover:text-red-500 shrink-0"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
                   </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <span className="text-[10px] text-slate-400">Qty</span>
-                    <input
-                      type="number"
-                      min={1}
-                      value={item.quantity}
-                      onChange={e => updateItem(idx, "quantity", Number(e.target.value))}
-                      className="w-10 h-7 px-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:border-brand-navy-400 bg-white"
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => removeItem(idx)}
-                    className="text-slate-300 hover:text-red-500 shrink-0"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
                 </div>
               ))}
             </div>

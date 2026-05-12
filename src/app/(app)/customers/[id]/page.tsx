@@ -7,7 +7,7 @@ import {
   ArrowLeft, Phone, MessageCircle, Wrench, Edit2,
   Car, Calendar, Shield, FileText, ChevronDown, ChevronUp,
   Plus, Clock, Send, MapPin, TrendingUp, Eye, AlertTriangle,
-  CheckCircle2, X, ChevronRight,
+  CheckCircle2, X, ChevronRight, Trash2, Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -538,13 +538,14 @@ function NotesTab({ customer }: { customer: Customer }) {
 
 // ── Customer header ───────────────────────────────────────────────
 
-function CustomerHeader({ customer, onAddressUpdated, onMapLinkUpdated, onOpenWhatsApp }: { customer: Customer; onAddressUpdated: (addr: string) => void; onMapLinkUpdated: (link: string) => void; onOpenWhatsApp: () => void }) {
+function CustomerHeader({ customer, onAddressUpdated, onMapLinkUpdated, onOpenWhatsApp, onDelete }: { customer: Customer; onAddressUpdated: (addr: string) => void; onMapLinkUpdated: (link: string) => void; onOpenWhatsApp: () => void; onDelete: () => void }) {
   const [editingAddress, setEditingAddress] = useState(false);
   const [addressDraft, setAddressDraft] = useState(customer.address ?? "");
   const [savingAddress, setSavingAddress] = useState(false);
   const [editingMapLink, setEditingMapLink] = useState(false);
   const [mapLinkDraft, setMapLinkDraft] = useState(customer.mapLink ?? "");
   const [savingMapLink, setSavingMapLink] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const neighbourhood = (() => {
     if (!customer.address) return "";
@@ -677,19 +678,49 @@ function CustomerHeader({ customer, onAddressUpdated, onMapLinkUpdated, onOpenWh
           )}
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
-          <button onClick={() => toast.info("Call feature coming soon")}
-            className="flex items-center gap-1.5 text-xs font-medium text-slate-600 hover:bg-green-50 hover:text-green-700 px-3 py-1.5 rounded border border-slate-200 hover:border-green-300 transition-colors">
-            <Phone className="w-3.5 h-3.5" /> Call
-          </button>
-          <button onClick={onOpenWhatsApp}
-            className="flex items-center gap-1.5 text-xs font-medium text-green-700 hover:bg-green-50 px-3 py-1.5 rounded border border-green-200 hover:border-green-300 transition-colors">
-            <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
-          </button>
-          <Link href={`/services/new?customerId=${customer.id}`}
-            className="flex items-center gap-1.5 text-xs font-medium text-brand-navy-700 bg-brand-navy-50 hover:bg-brand-navy-100 px-3 py-1.5 rounded border border-brand-navy-200 transition-colors">
-            <Wrench className="w-3.5 h-3.5" /> New SR
-          </Link>
+        <div className="flex flex-col items-end gap-2 shrink-0">
+          <div className="flex items-center gap-2">
+            <button onClick={() => toast.info("Call feature coming soon")}
+              className="flex items-center gap-1.5 text-xs font-medium text-slate-600 hover:bg-green-50 hover:text-green-700 px-3 py-1.5 rounded border border-slate-200 hover:border-green-300 transition-colors">
+              <Phone className="w-3.5 h-3.5" /> Call
+            </button>
+            <button onClick={onOpenWhatsApp}
+              className="flex items-center gap-1.5 text-xs font-medium text-green-700 hover:bg-green-50 px-3 py-1.5 rounded border border-green-200 hover:border-green-300 transition-colors">
+              <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
+            </button>
+            <Link href={`/services/new?customerId=${customer.id}`}
+              className="flex items-center gap-1.5 text-xs font-medium text-brand-navy-700 bg-brand-navy-50 hover:bg-brand-navy-100 px-3 py-1.5 rounded border border-brand-navy-200 transition-colors">
+              <Wrench className="w-3.5 h-3.5" /> New SR
+            </Link>
+          </div>
+
+          {/* Delete customer */}
+          {confirmDelete ? (
+            <div className="flex flex-col items-end gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+              <p className="text-[11px] text-red-700 font-medium">Are you sure? This will deactivate the customer and hide them from active lists.</p>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={onDelete}
+                  className="flex items-center gap-1 text-[11px] font-semibold bg-red-600 text-white hover:bg-red-700 px-2.5 py-1 rounded transition-colors"
+                >
+                  <Trash2 className="w-3 h-3" /> Yes, Delete
+                </button>
+                <button
+                  onClick={() => setConfirmDelete(false)}
+                  className="text-[11px] font-medium text-slate-600 hover:text-slate-800 px-2.5 py-1 rounded border border-slate-200 hover:bg-slate-50 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => setConfirmDelete(true)}
+              className="flex items-center gap-1.5 text-[11px] font-medium border border-red-300 text-red-600 hover:bg-red-50 px-2.5 py-1.5 rounded-lg transition-colors"
+            >
+              <Trash2 className="w-3.5 h-3.5" /> Delete Customer
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -835,6 +866,21 @@ export default function CustomerProfilePage() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabId>("overview");
 
+  async function handleDeleteCustomer() {
+    try {
+      const res = await fetch(`/api/customers/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.error ?? "Failed to delete customer");
+        return;
+      }
+      toast.success("Customer deactivated");
+      router.push("/customers");
+    } catch {
+      toast.error("Failed to delete customer");
+    }
+  }
+
   useEffect(() => {
     fetch(`/api/customers/${id}`)
       .then((r) => r.ok ? r.json() : null)
@@ -858,7 +904,7 @@ export default function CustomerProfilePage() {
         <span className="text-[11px] text-slate-600 font-medium">{customer.name}</span>
       </div>
 
-      <CustomerHeader customer={customer} onAddressUpdated={(addr) => setCustomer(c => c ? { ...c, address: addr || null } : c)} onMapLinkUpdated={(link) => setCustomer(c => c ? { ...c, mapLink: link || null } : c)} onOpenWhatsApp={() => setActiveTab("whatsapp")} />
+      <CustomerHeader customer={customer} onAddressUpdated={(addr) => setCustomer(c => c ? { ...c, address: addr || null } : c)} onMapLinkUpdated={(link) => setCustomer(c => c ? { ...c, mapLink: link || null } : c)} onOpenWhatsApp={() => setActiveTab("whatsapp")} onDelete={handleDeleteCustomer} />
 
       <div className="bg-white border-b border-slate-200 px-5 shrink-0">
         <div className="flex">

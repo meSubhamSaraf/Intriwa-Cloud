@@ -7,7 +7,7 @@ import {
   CheckCircle, MapPin, ChevronLeft, ChevronRight,
   Edit2, Save, X, FileText, DollarSign, History,
   AlertCircle, Upload, LayoutDashboard,
-  Wallet, User, BadgeCheck, Mail, Send, Loader2,
+  Wallet, User, BadgeCheck, Mail, Send, Loader2, Trash2,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
@@ -1121,6 +1121,8 @@ export default function MechanicDetailPage() {
   const [customSkillInput, setCustomSkillInput] = useState("");
   const [localHours, setLocalHours] = useState({ start: "08:00", end: "18:00", days: ["Mon","Tue","Wed","Thu","Fri","Sat"] });
   const [editingHours, setEditingHours] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     fetch(`/api/mechanics/${id}`)
@@ -1247,6 +1249,24 @@ export default function MechanicDetailPage() {
     setLocalHours((prev) => ({ ...prev, days: prev.days.includes(day) ? prev.days.filter((d) => d !== day) : [...prev.days, day] }));
   }
 
+  async function handleDelete() {
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/mechanics/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.error ?? "Failed to delete mechanic");
+        return;
+      }
+      toast.success("Mechanic deactivated");
+      router.push("/mechanics");
+    } catch {
+      toast.error("Failed to delete mechanic");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   return (
     <div className="p-4 max-w-6xl">
       <button onClick={() => router.back()} className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-800 mb-4 transition-colors">
@@ -1260,6 +1280,7 @@ export default function MechanicDetailPage() {
             {initials(displayName)}
           </div>
           <div className="flex-1 min-w-0">
+
             <div className="flex items-center gap-3 flex-wrap mb-2">
               <h1 className="text-lg font-semibold text-slate-800">{displayName}</h1>
               <span className="text-[10px] font-medium px-1.5 py-0.5 rounded border text-brand-navy-700 bg-brand-navy-50 border-brand-navy-200">
@@ -1482,6 +1503,38 @@ export default function MechanicDetailPage() {
                 )}
               </div>
             </div>
+          </div>
+
+          {/* Delete mechanic */}
+          <div className="shrink-0">
+            {confirmDelete ? (
+              <div className="flex flex-col items-end gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                <p className="text-[11px] text-red-700 font-medium">Are you sure? This will deactivate the mechanic.</p>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleDelete}
+                    disabled={deleting}
+                    className="flex items-center gap-1 text-[11px] font-semibold bg-red-600 text-white hover:bg-red-700 px-2.5 py-1 rounded disabled:opacity-60 transition-colors"
+                  >
+                    {deleting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                    Yes, Delete
+                  </button>
+                  <button
+                    onClick={() => setConfirmDelete(false)}
+                    className="text-[11px] font-medium text-slate-600 hover:text-slate-800 px-2.5 py-1 rounded border border-slate-200 hover:bg-slate-50 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                onClick={() => setConfirmDelete(true)}
+                className="flex items-center gap-1.5 text-[11px] font-medium border border-red-300 text-red-600 hover:bg-red-50 px-2.5 py-1.5 rounded-lg transition-colors"
+              >
+                <Trash2 className="w-3.5 h-3.5" /> Delete
+              </button>
+            )}
           </div>
         </div>
       </div>
