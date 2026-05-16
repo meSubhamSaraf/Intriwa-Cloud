@@ -1,13 +1,15 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
   Wrench, CheckCircle2, Clock, ChevronRight, Car, Phone,
   MapPin, Camera, MessageCircle, Star, Wifi,
   AlertCircle, LogIn, LogOut, ExternalLink, Loader2,
   IndianRupee, TrendingUp, Gift, Plus, X, Eye, Navigation,
+  Video, ImageIcon, Send, List,
 } from "lucide-react";
 import { toast } from "sonner";
+import { prepareForUpload, isVideo } from "@/lib/compress";
 
 // ── Types ─────────────────────────────────────────────────────────
 
@@ -34,9 +36,7 @@ type Payout = {
 type EarningsSummary = { allTime: number; thisMonth: number };
 
 type AccruedData = {
-  amount: number;
-  penaltyDeductions: number;
-  net: number;
+  amount: number; penaltyDeductions: number; net: number;
   breakdown: { srNumber: string; description: string; closedAt: string | null; amount: number }[];
 };
 
@@ -45,6 +45,8 @@ type IncentiveRule = {
   conditionType: string; conditionPeriod: string; conditionValue: number;
   bonusType: string; bonusAmount: number; isActive: boolean;
 };
+
+type StagedFile = { file: File; preview: string; mediaType: "image" | "video" };
 
 // ── Helpers ───────────────────────────────────────────────────────
 
@@ -64,7 +66,6 @@ const SR_STATUS_COLOR: Record<string, string> = {
   READY:         "text-green-700 bg-green-50",
   CLOSED:        "text-slate-400 bg-slate-50",
 };
-
 const PAYOUT_STATUS_COLOR: Record<string, string> = {
   PENDING:   "text-amber-700 bg-amber-50 border-amber-200",
   APPROVED:  "text-blue-700 bg-blue-50 border-blue-200",
@@ -87,9 +88,9 @@ function initials(name: string) {
   return name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase();
 }
 
-// ── Add Item Modal ────────────────────────────────────────────────
+// ── Upload ────────────────────────────────────────────────────────
 
-async function uploadPhoto(file: File, path: string): Promise<string | null> {
+async function uploadMedia(file: File, path: string): Promise<{ url: string; mediaType: "image" | "video" } | null> {
   try {
     const signRes = await fetch("/api/upload/sign", {
       method: "POST",
@@ -98,14 +99,45 @@ async function uploadPhoto(file: File, path: string): Promise<string | null> {
     });
     if (!signRes.ok) return null;
     const { signedUrl, publicUrl } = await signRes.json();
-    const uploadRes = await fetch(signedUrl, {
-      method: "PUT",
-      headers: { "Content-Type": file.type },
-      body: file,
-    });
-    return uploadRes.ok ? publicUrl : null;
+    const uploadRes = await fetch(signedUrl, { method: "PUT", headers: { "Content-Type": file.type }, body: file });
+    if (!uploadRes.ok) return null;
+    return { url: publicUrl, mediaType: isVideo(file) ? "video" : "image" };
   } catch { return null; }
 }
+
+// ── Media staging panel ───────────────────────────────────────────
+
+function MediaGrid({
+  staged, onRemove,
+}: { staged: StagedFile[]; onRemove: (i: number) => void }) {
+  if (staged.length === 0) return null;
+  return (
+    <div className="grid grid-cols-4 gap-1 mt-2">
+      {staged.map((sf, i) => (
+        <div key={i} className="relative aspect-square rounded-lg overflow-hidden bg-slate-100 group">
+          {sf.mediaType === "image" ? (
+            <img src={sf.preview} className="w-full h-full object-cover" alt="" />
+          ) : (
+            <div className="w-full h-full flex flex-col items-center justify-center gap-1">
+              <Video className="w-5 h-5 text-slate-400" />
+              <span className="text-[9px] text-slate-400 px-1 text-center truncate w-full">
+                {sf.file.name.slice(0, 10)}
+              </span>
+            </div>
+          )}
+          <button
+            onClick={() => onRemove(i)}
+            className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+          >
+            <X className="w-2.5 h-2.5 text-white" />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Add Item Modal ────────────────────────────────────────────────
 
 function AddItemModal({ srId, onClose, onAdded }: { srId: string; onClose: () => void; onAdded: () => void }) {
   const [description, setDescription] = useState("");
@@ -123,8 +155,12 @@ function AddItemModal({ srId, onClose, onAdded }: { srId: string; onClose: () =>
       let photoUrl: string | null = null;
       if (photoFile) {
         setUploading(true);
-        const ext = photoFile.name.split(".").pop() ?? "jpg";
-        photoUrl = await uploadPhoto(photoFile, `addons/${srId}/${Date.now()}.${ext}`);
+        const { file: ready, ok } = await prepareForUpload(photoFile);
+        if (ok) {
+          const ext = ready.name.split(".").pop() ?? "jpg";
+          const result = await uploadMedia(ready, `addons/${srId}/${Date.now()}.${ext}`);
+          photoUrl = result?.url ?? null;
+        }
         setUploading(false);
         if (!photoUrl) toast.info("Photo upload failed — item will be saved without photo");
       }
@@ -139,12 +175,8 @@ function AddItemModal({ srId, onClose, onAdded }: { srId: string; onClose: () =>
         return;
       }
       toast.success("Item added — ops will review and set the selling price.");
-      onAdded();
-      onClose();
-    } finally {
-      setSaving(false);
-      setUploading(false);
-    }
+      onAdded(); onClose();
+    } finally { setSaving(false); setUploading(false); }
   }
 
   return (
@@ -157,53 +189,42 @@ function AddItemModal({ srId, onClose, onAdded }: { srId: string; onClose: () =>
         <form onSubmit={submit} className="space-y-3">
           <div>
             <label className="block text-xs font-medium text-slate-600 mb-1">Item name</label>
-            <input
-              value={description} onChange={e => setDescription(e.target.value)}
+            <input value={description} onChange={e => setDescription(e.target.value)}
               placeholder="e.g. Air filter, Brake pads" required
-              className="w-full h-10 px-3 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-brand-navy-400"
-            />
+              className="w-full h-10 px-3 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-brand-navy-400" />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Your purchase price (₹)</label>
-              <input
-                type="number" value={purchasePrice} onChange={e => setPurchasePrice(e.target.value)}
+              <label className="block text-xs font-medium text-slate-600 mb-1">Purchase price (₹)</label>
+              <input type="number" value={purchasePrice} onChange={e => setPurchasePrice(e.target.value)}
                 placeholder="0" min={0} required
-                className="w-full h-10 px-3 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-brand-navy-400"
-              />
+                className="w-full h-10 px-3 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-brand-navy-400" />
             </div>
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">Qty</label>
-              <input
-                type="number" value={quantity} onChange={e => setQuantity(Number(e.target.value))}
+              <input type="number" value={quantity} onChange={e => setQuantity(Number(e.target.value))}
                 min={1} required
-                className="w-full h-10 px-3 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-brand-navy-400"
-              />
+                className="w-full h-10 px-3 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-brand-navy-400" />
             </div>
           </div>
-
           <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">Photo of receipt / item</label>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Photo / video of receipt or item</label>
             <button type="button" onClick={() => fileRef.current?.click()}
               className={`w-full h-10 flex items-center justify-center gap-2 border border-dashed rounded-lg text-sm transition-colors ${
                 photoFile ? "border-green-400 text-green-700 bg-green-50" : "border-slate-300 text-slate-500 hover:bg-slate-50"
               }`}>
               <Camera className="w-4 h-4" />
-              {photoFile ? photoFile.name.slice(0, 24) : "Take / attach photo"}
+              {photoFile ? photoFile.name.slice(0, 24) : "Take / attach photo or video"}
             </button>
-            <input type="file" accept="image/*" capture="environment" className="hidden" ref={fileRef}
+            <input type="file" accept="image/*,video/*" capture="environment" className="hidden" ref={fileRef}
               onChange={e => { if (e.target.files?.[0]) setPhotoFile(e.target.files[0]); }} />
           </div>
-
           <p className="text-[10px] text-slate-400">
             Ops will review this item and set the final selling price before adding it to the customer's bill.
           </p>
-
           <div className="flex gap-2 pt-1">
             <button type="button" onClick={onClose}
-              className="flex-1 h-10 border border-slate-200 text-sm text-slate-600 rounded-xl hover:bg-slate-50">
-              Cancel
-            </button>
+              className="flex-1 h-10 border border-slate-200 text-sm text-slate-600 rounded-xl hover:bg-slate-50">Cancel</button>
             <button type="submit" disabled={saving || uploading}
               className="flex-1 h-10 bg-brand-navy-800 text-white text-sm font-medium rounded-xl hover:bg-brand-navy-700 disabled:opacity-60 flex items-center justify-center gap-1.5">
               {(saving || uploading) && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
@@ -227,25 +248,16 @@ function ObservationModal({
   const [saving, setSaving] = useState(false);
 
   async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    setSaving(true);
+    e.preventDefault(); setSaving(true);
     try {
       const res = await fetch("/api/observations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          customerId, vehicleId, srId,
-          raisedById: mechanicId, raisedByName: mechanicName,
-          description: desc, severity,
-          estimatedCost: cost ? Number(cost) : null,
-        }),
+        body: JSON.stringify({ customerId, vehicleId, srId, raisedById: mechanicId, raisedByName: mechanicName, description: desc, severity, estimatedCost: cost ? Number(cost) : null }),
       });
       if (!res.ok) { toast.error("Failed to save"); return; }
-      toast.success("Observation flagged — ops team will follow up.");
-      onClose();
-    } finally {
-      setSaving(false);
-    }
+      toast.success("Observation flagged — ops team will follow up."); onClose();
+    } finally { setSaving(false); }
   }
 
   return (
@@ -295,13 +307,9 @@ function ObservationModal({
 }
 
 // ── KM Reading Modal ──────────────────────────────────────────────
-// Used for both "before service" (job start) and "after service" (job complete).
 
 function KmReadingModal({ phase, sr, onClose, onConfirm }: {
-  phase: "before" | "after";
-  sr: SR;
-  onClose: () => void;
-  // onConfirm: (vehicleKm: number, travelledKm?: number) => void
+  phase: "before" | "after"; sr: SR; onClose: () => void;
   onConfirm: (vehicleKm: number, travelledKm?: number) => void;
 }) {
   const [reading, setReading] = useState("");
@@ -324,49 +332,33 @@ function KmReadingModal({ phase, sr, onClose, onConfirm }: {
             ? "Record the vehicle's current odometer reading before you start work."
             : "Record the vehicle's odometer reading now that service is complete."}
         </p>
-
         <div className="space-y-3">
           <div>
             <label className="block text-xs font-medium text-slate-600 mb-1">
               Odometer reading (km) <span className="text-red-500">*</span>
             </label>
-            <input
-              type="number" min={0} value={reading} autoFocus
-              onChange={(e) => setReading(e.target.value)}
+            <input type="number" min={0} value={reading} autoFocus onChange={(e) => setReading(e.target.value)}
               placeholder="e.g. 24500"
-              className="w-full h-10 px-3 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-brand-navy-400"
-            />
+              className="w-full h-10 px-3 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-brand-navy-400" />
           </div>
-
           {isField && (
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">
                 Distance you travelled (km) <span className="text-red-500">*</span>
               </label>
-              <p className="text-[10px] text-slate-400 mb-1">
-                A fuel allowance will be added to your payout.
-              </p>
-              <input
-                type="number" min={0} value={travelled}
-                onChange={(e) => setTravelled(e.target.value)}
+              <p className="text-[10px] text-slate-400 mb-1">A fuel allowance will be added to your payout.</p>
+              <input type="number" min={0} value={travelled} onChange={(e) => setTravelled(e.target.value)}
                 placeholder="e.g. 8"
-                className="w-full h-10 px-3 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-brand-navy-400"
-              />
+                className="w-full h-10 px-3 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-brand-navy-400" />
             </div>
           )}
         </div>
-
         <div className="flex gap-2 mt-4">
           <button type="button" onClick={onClose}
-            className="flex-1 h-10 border border-slate-200 text-sm text-slate-600 rounded-xl hover:bg-slate-50">
-            Cancel
-          </button>
-          <button
-            type="button"
-            disabled={!isValid}
+            className="flex-1 h-10 border border-slate-200 text-sm text-slate-600 rounded-xl hover:bg-slate-50">Cancel</button>
+          <button type="button" disabled={!isValid}
             onClick={() => onConfirm(Number(reading), isField ? Number(travelled) : undefined)}
-            className="flex-1 h-10 bg-brand-navy-800 text-white text-sm font-medium rounded-xl hover:bg-brand-navy-700 disabled:opacity-60"
-          >
+            className="flex-1 h-10 bg-brand-navy-800 text-white text-sm font-medium rounded-xl hover:bg-brand-navy-700 disabled:opacity-60">
             {phase === "before" ? "Start Job" : "Complete Job"}
           </button>
         </div>
@@ -382,17 +374,36 @@ function JobsTab({ mechanic, available, onToggleAvailability, clockingIn }: {
   onToggleAvailability: () => void; clockingIn: boolean;
 }) {
   const [localStatuses, setLocalStatuses] = useState<Record<string, string>>({});
-  const [photos, setPhotos] = useState<Record<string, number>>({});
+  const [stagedMedia, setStagedMedia] = useState<Record<string, StagedFile[]>>({});
   const [advancing, setAdvancing] = useState<Record<string, boolean>>({});
   const [addItemFor, setAddItemFor] = useState<string | null>(null);
   const [obsFor, setObsFor] = useState<SR | null>(null);
   const [notifyFor, setNotifyFor] = useState<string | null>(null);
   const [notifying, setNotifying] = useState<Record<string, boolean>>({});
-  // kmFor tracks which SR is waiting for a KM reading and whether it's the before or after phase
   const [kmFor, setKmFor] = useState<{ sr: SR; phase: "before" | "after" } | null>(null);
-  const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const mediaInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   function getStatus(srId: string, base: string) { return localStatuses[srId] ?? base; }
+
+  const stageFiles = useCallback((srId: string, files: FileList) => {
+    const newFiles: StagedFile[] = [];
+    Array.from(files).forEach((file) => {
+      const mediaType = isVideo(file) ? "video" : "image";
+      const preview = mediaType === "image" ? URL.createObjectURL(file) : "";
+      newFiles.push({ file, preview, mediaType });
+    });
+    setStagedMedia((m) => ({ ...m, [srId]: [...(m[srId] ?? []), ...newFiles] }));
+    toast.success(`${newFiles.length} file${newFiles.length > 1 ? "s" : ""} staged`);
+  }, []);
+
+  const removeStaged = useCallback((srId: string, idx: number) => {
+    setStagedMedia((m) => {
+      const updated = [...(m[srId] ?? [])];
+      if (updated[idx]?.preview) URL.revokeObjectURL(updated[idx].preview);
+      updated.splice(idx, 1);
+      return { ...m, [srId]: updated };
+    });
+  }, []);
 
   async function notifyCustomer(srId: string, type: string) {
     setNotifying(n => ({ ...n, [srId]: true }));
@@ -413,35 +424,79 @@ function JobsTab({ mechanic, available, onToggleAvailability, clockingIn }: {
     const status = getStatus(sr.id, sr.status);
     const adv = SR_STATUS_ADVANCE[status];
     if (!adv) return;
-    if ((photos[sr.id] ?? 0) === 0) {
-      toast.error("Capture at least one photo before updating the job status.");
+
+    const staged = stagedMedia[sr.id] ?? [];
+    if (staged.length === 0) {
+      toast.error("Add at least one photo or video before updating status.");
       return;
     }
-    // Always require vehicle KM reading — open the appropriate modal if not yet provided
+
     if (kmReading === undefined) {
       const phase = adv.next === "IN_PROGRESS" ? "before" : "after";
-      setKmFor({ sr, phase });
-      return;
+      setKmFor({ sr, phase }); return;
     }
+
     setAdvancing(a => ({ ...a, [sr.id]: true }));
     try {
-      const body: Record<string, unknown> = { status: adv.next };
-      if (adv.next === "IN_PROGRESS") {
-        body.kmBefore = kmReading;
-      } else {
-        body.kmAfter = kmReading;
-        if (kmTravelled !== undefined) body.kmTravelled = kmTravelled;
+      // 1. Compress images + upload all staged media
+      const phaseLabel = adv.next === "IN_PROGRESS" ? "start" : "complete";
+      const uploaded: { url: string; mediaType: "image" | "video" }[] = [];
+      let failCount = 0;
+
+      for (const sf of staged) {
+        const { file: ready, ok, error } = await prepareForUpload(sf.file);
+        if (!ok) { toast.error(error ?? "File error"); failCount++; continue; }
+        const ext = ready.name.split(".").pop() ?? (sf.mediaType === "video" ? "mp4" : "jpg");
+        const result = await uploadMedia(ready, `jobs/${sr.id}/${phaseLabel}/${Date.now()}.${ext}`);
+        if (result) uploaded.push(result);
+        else failCount++;
       }
-      const res = await fetch(`/api/service-requests/${sr.id}`, {
-        method: "PATCH",
+
+      if (uploaded.length === 0) {
+        toast.error("All uploads failed. Check your connection and try again.");
+        return;
+      }
+      if (failCount > 0) toast.info(`${failCount} file(s) failed to upload — continuing with ${uploaded.length} uploaded.`);
+
+      // 2. Log as timeline PHOTO events
+      await fetch(`/api/service-requests/${sr.id}/photos`, {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ photos: uploaded.map((u) => ({ url: u.url, type: u.mediaType })) }),
+      }).catch(() => null);
+
+      // 3. Advance status with KM readings
+      const body: Record<string, unknown> = { status: adv.next };
+      if (adv.next === "IN_PROGRESS") body.kmBefore = kmReading;
+      else { body.kmAfter = kmReading; if (kmTravelled !== undefined) body.kmTravelled = kmTravelled; }
+
+      const res = await fetch(`/api/service-requests/${sr.id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
       });
-      if (!res.ok) throw new Error();
+      if (!res.ok) throw new Error("Status update failed");
       setLocalStatuses(s => ({ ...s, [sr.id]: adv.next }));
-      toast.success(adv.next === "READY" ? "Job complete — ready for invoice." : "Status updated.");
-    } catch { toast.error("Failed to update. Try again."); }
-    finally { setAdvancing(a => ({ ...a, [sr.id]: false })); }
+
+      // 4. Auto-notify customer with media
+      const notifyType = adv.next === "IN_PROGRESS" ? "job_started" : "job_ready";
+      await fetch(`/api/service-requests/${sr.id}/notify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: notifyType, mediaUrls: uploaded }),
+      }).catch(() => null);
+
+      // 5. Clear staged media
+      staged.forEach((sf) => { if (sf.preview) URL.revokeObjectURL(sf.preview); });
+      setStagedMedia((m) => { const n = { ...m }; delete n[sr.id]; return n; });
+
+      toast.success(adv.next === "READY"
+        ? `Job complete! ${uploaded.length} file${uploaded.length > 1 ? "s" : ""} sent to customer.`
+        : `Job started! ${uploaded.length} file${uploaded.length > 1 ? "s" : ""} sent to customer.`);
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to update. Try again.");
+    } finally {
+      setAdvancing(a => ({ ...a, [sr.id]: false }));
+    }
   }
 
   const activeSRs = mechanic.serviceRequests.filter(sr => getStatus(sr.id, sr.status) !== "CLOSED");
@@ -515,12 +570,14 @@ function JobsTab({ mechanic, available, onToggleAvailability, clockingIn }: {
         const status = getStatus(sr.id, sr.status);
         const adv = SR_STATUS_ADVANCE[status];
         const done = ["READY", "CLOSED"].includes(status);
-        const photoCount = photos[sr.id] ?? 0;
+        const staged = stagedMedia[sr.id] ?? [];
         const isAdv = advancing[sr.id] ?? false;
+        const isPreStart = status === "OPEN";
+        const isWorking = status === "IN_PROGRESS" || status === "WAITING_PARTS";
 
         return (
           <div key={sr.id} className={`bg-white border rounded-xl overflow-hidden ${done ? "border-green-200 opacity-80" : "border-slate-200 shadow-sm"}`}>
-            {/* Tap header to open SR */}
+            {/* Header */}
             <div className={`px-4 py-2.5 flex items-center justify-between cursor-pointer active:opacity-70 ${done ? "bg-green-50" : "bg-slate-50"} border-b border-slate-100`}
               onClick={() => window.open(`/field/${sr.id}`, "_blank")}>
               <div className="flex items-center gap-2 min-w-0">
@@ -560,6 +617,7 @@ function JobsTab({ mechanic, available, onToggleAvailability, clockingIn }: {
                   <span>{sr.complaint}</span>
                 </div>
               )}
+
               {sr.locationType && sr.locationType !== "GARAGE" && (
                 <div className="flex items-center gap-1.5 mb-3">
                   <MapPin className="w-3 h-3 text-blue-500 shrink-0" />
@@ -568,13 +626,54 @@ function JobsTab({ mechanic, available, onToggleAvailability, clockingIn }: {
                     {sr.customer?.address ? ` · ${sr.customer.address}` : ""}
                   </span>
                   {(sr.customer?.mapLink || sr.customer?.address) && (
-                    <a
-                      href={sr.customer.mapLink ?? `https://maps.google.com?q=${encodeURIComponent(sr.customer.address ?? "")}`}
+                    <a href={sr.customer.mapLink ?? `https://maps.google.com?q=${encodeURIComponent(sr.customer.address ?? "")}`}
                       target="_blank" rel="noopener noreferrer"
                       className="flex items-center gap-1 text-[11px] font-medium text-white bg-blue-600 hover:bg-blue-700 px-2 py-1 rounded-lg shrink-0">
                       <Navigation className="w-3 h-3" /> Navigate
                     </a>
                   )}
+                </div>
+              )}
+
+              {/* Media staging area */}
+              {!done && (
+                <div className={`rounded-lg border border-dashed p-2.5 mb-3 ${
+                  staged.length > 0 ? "border-green-300 bg-green-50" : isWorking ? "border-amber-300 bg-amber-50" : "border-slate-200 bg-slate-50"
+                }`}>
+                  <div className="flex items-center gap-2">
+                    {isWorking ? (
+                      <Camera className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                    ) : (
+                      <ImageIcon className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                    )}
+                    <p className={`text-[11px] font-medium flex-1 ${isWorking ? "text-amber-700" : "text-slate-600"}`}>
+                      {isPreStart
+                        ? staged.length > 0
+                          ? `${staged.length} file${staged.length > 1 ? "s" : ""} ready — will be sent when you start`
+                          : "Add photos / videos before starting job"
+                        : staged.length > 0
+                          ? `${staged.length} file${staged.length > 1 ? "s" : ""} ready — will be sent when you complete`
+                          : "Add completion photos / videos"}
+                    </p>
+                    <button
+                      onClick={() => mediaInputRefs.current[sr.id]?.click()}
+                      className={`flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded-md shrink-0 ${
+                        isWorking && staged.length === 0
+                          ? "bg-amber-500 text-white hover:bg-amber-600"
+                          : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
+                      }`}>
+                      <Plus className="w-3 h-3" /> Add
+                    </button>
+                    <input
+                      type="file"
+                      accept="image/*,video/*"
+                      multiple
+                      className="hidden"
+                      ref={el => { mediaInputRefs.current[sr.id] = el; }}
+                      onChange={e => { if (e.target.files?.length) { stageFiles(sr.id, e.target.files); e.target.value = ""; } }}
+                    />
+                  </div>
+                  <MediaGrid staged={staged} onRemove={(i) => removeStaged(sr.id, i)} />
                 </div>
               )}
 
@@ -586,10 +685,10 @@ function JobsTab({ mechanic, available, onToggleAvailability, clockingIn }: {
                     <Phone className="w-3.5 h-3.5" /> Call
                   </a>
                 )}
+
                 {sr.customer?.phone && (
                   <div className="relative">
-                    <button
-                      onClick={() => setNotifyFor(notifyFor === sr.id ? null : sr.id)}
+                    <button onClick={() => setNotifyFor(notifyFor === sr.id ? null : sr.id)}
                       disabled={notifying[sr.id]}
                       className="flex items-center gap-1.5 text-[11px] font-medium text-green-700 bg-green-50 hover:bg-green-100 px-2.5 py-1.5 rounded-lg disabled:opacity-50">
                       <MessageCircle className="w-3.5 h-3.5" />
@@ -604,8 +703,7 @@ function JobsTab({ mechanic, available, onToggleAvailability, clockingIn }: {
                             { type: "waiting_parts", label: "Waiting for Parts" },
                             { type: "job_ready", label: "Ready for Pickup" },
                           ].map(opt => (
-                            <button key={opt.type}
-                              onClick={() => notifyCustomer(sr.id, opt.type)}
+                            <button key={opt.type} onClick={() => notifyCustomer(sr.id, opt.type)}
                               className="w-full text-left px-3 py-2.5 text-[12px] text-slate-700 hover:bg-green-50 border-b border-slate-100 last:border-0">
                               {opt.label}
                             </button>
@@ -615,17 +713,6 @@ function JobsTab({ mechanic, available, onToggleAvailability, clockingIn }: {
                     )}
                   </div>
                 )}
-
-                {/* Camera */}
-                <button onClick={() => fileInputRefs.current[sr.id]?.click()}
-                  className={`flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1.5 rounded-lg transition-colors ${
-                    photoCount > 0 ? "text-green-700 bg-green-50 hover:bg-green-100" : "text-slate-600 bg-slate-100 hover:bg-slate-200"
-                  }`}>
-                  <Camera className="w-3.5 h-3.5" /> Photo{photoCount > 0 ? ` (${photoCount})` : ""}
-                </button>
-                <input type="file" accept="image/*" capture="environment" className="hidden"
-                  ref={el => { fileInputRefs.current[sr.id] = el; }}
-                  onChange={e => { if (e.target.files?.[0]) { setPhotos(p => ({ ...p, [sr.id]: (p[sr.id] ?? 0) + 1 })); toast.success("Photo captured"); e.target.value = ""; } }} />
 
                 {/* Add item */}
                 <button onClick={() => setAddItemFor(sr.id)}
@@ -639,21 +726,21 @@ function JobsTab({ mechanic, available, onToggleAvailability, clockingIn }: {
                   <Eye className="w-3.5 h-3.5" /> Observe
                 </button>
 
+                {/* Job log (per-item media page) */}
+                <a href={`/mechanic-portal/job/${sr.id}`}
+                  className="flex items-center gap-1.5 text-[11px] font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 px-2.5 py-1.5 rounded-lg">
+                  <List className="w-3.5 h-3.5" /> Job Log
+                </a>
+
                 {/* Status advance */}
                 {adv && !done && (
-                  <button onClick={() => advanceStatus(sr)} disabled={isAdv || photoCount === 0}
-                    title={photoCount === 0 ? "Capture a photo first" : adv.label}
+                  <button onClick={() => advanceStatus(sr)} disabled={isAdv || staged.length === 0}
+                    title={staged.length === 0 ? "Add a photo or video first" : adv.label}
                     className={`flex items-center gap-1.5 text-[11px] font-medium text-white px-3 py-1.5 rounded-lg ml-auto disabled:opacity-40 disabled:cursor-not-allowed ${adv.color}`}>
                     {isAdv ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <>{adv.label} <ChevronRight className="w-3.5 h-3.5" /></>}
                   </button>
                 )}
               </div>
-
-              {adv && !done && photoCount === 0 && (
-                <p className="text-[10px] text-amber-600 mt-2 flex items-center gap-1">
-                  <Camera className="w-3 h-3" /> Take a photo to enable status update
-                </p>
-              )}
             </div>
           </div>
         );
@@ -707,12 +794,9 @@ function JobsTab({ mechanic, available, onToggleAvailability, clockingIn }: {
       )}
       {kmFor && (
         <KmReadingModal
-          phase={kmFor.phase}
-          sr={kmFor.sr}
-          onClose={() => setKmFor(null)}
+          phase={kmFor.phase} sr={kmFor.sr} onClose={() => setKmFor(null)}
           onConfirm={(vehicleKm, travelledKm) => {
-            const pending = kmFor;
-            setKmFor(null);
+            const pending = kmFor; setKmFor(null);
             advanceStatus(pending.sr, vehicleKm, travelledKm);
           }}
         />
@@ -738,11 +822,7 @@ function EarningsTab() {
   useEffect(() => {
     fetch("/api/me/earnings")
       .then(r => r.ok ? r.json() : { payouts: [], summary: null })
-      .then(d => {
-        setPayouts(d.payouts ?? []);
-        setSummary(d.summary ?? null);
-        setAccrued(d.accrued ?? null);
-      })
+      .then(d => { setPayouts(d.payouts ?? []); setSummary(d.summary ?? null); setAccrued(d.accrued ?? null); })
       .finally(() => setLoading(false));
   }, []);
 
@@ -750,7 +830,6 @@ function EarningsTab() {
 
   return (
     <div className="p-4 pb-8 max-w-md mx-auto space-y-4">
-      {/* Summary cards */}
       {summary && (
         <div className="grid grid-cols-2 gap-3">
           <div className="bg-white border border-slate-200 rounded-xl p-4">
@@ -763,8 +842,6 @@ function EarningsTab() {
           </div>
         </div>
       )}
-
-      {/* Accrued (unpaid) earnings */}
       {accrued !== null && accrued.breakdown.length > 0 && (
         <div className={`rounded-xl border p-4 ${accrued.net > 0 ? "bg-green-50 border-green-200" : "bg-slate-50 border-slate-200"}`}>
           <div className="flex items-center justify-between mb-2">
@@ -791,9 +868,7 @@ function EarningsTab() {
           </div>
         </div>
       )}
-
       <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Payout History</h2>
-
       {payouts.length === 0 ? (
         <div className="text-center py-10 text-slate-400 text-sm">No payouts yet.</div>
       ) : (
@@ -849,9 +924,7 @@ function IncentivesTab() {
         <Gift className="w-4 h-4 shrink-0 mt-0.5 text-amber-600" />
         <span>Hit these targets to earn bonus pay — your garage manager applies them when processing your payout.</span>
       </div>
-
       <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Active Incentive Rules</h2>
-
       {rules.filter(r => r.isActive).length === 0 ? (
         <div className="text-center py-10 text-slate-400 text-sm">No incentive rules configured yet.</div>
       ) : (
@@ -902,8 +975,7 @@ export default function MechanicPortalPage() {
     const next = !available;
     try {
       const res = await fetch(`/api/mechanics/${mechanic.id}/availability`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+        method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ isAvailable: next }),
       });
       if (!res.ok) throw new Error();
@@ -937,7 +1009,6 @@ export default function MechanicPortalPage() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Tab bar */}
       <div className="bg-white border-b border-slate-200 flex shrink-0">
         {([
           { id: "jobs",       label: "My Jobs",    icon: <Wrench className="w-3.5 h-3.5" /> },
@@ -952,14 +1023,9 @@ export default function MechanicPortalPage() {
           </button>
         ))}
       </div>
-
-      {/* Tab content */}
       <div className="flex-1 overflow-auto">
         {tab === "jobs" && (
-          <JobsTab
-            mechanic={mechanic} available={available}
-            onToggleAvailability={toggleAvailability} clockingIn={clockingIn}
-          />
+          <JobsTab mechanic={mechanic} available={available} onToggleAvailability={toggleAvailability} clockingIn={clockingIn} />
         )}
         {tab === "earnings"   && <EarningsTab />}
         {tab === "incentives" && <IncentivesTab />}

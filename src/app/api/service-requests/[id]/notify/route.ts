@@ -37,7 +37,10 @@ export const POST = withAuthParams<{ id: string }>(async (req, { garageId, profi
   if (!sr) return NextResponse.json({ error: "SR not found" }, { status: 404 });
   if (!sr.customer?.phone) return NextResponse.json({ error: "No customer phone" }, { status: 422 });
 
-  const { type } = (await req.json()) as { type: string };
+  const { type, mediaUrls } = (await req.json()) as {
+    type: string;
+    mediaUrls?: { url: string; mediaType: "image" | "video" }[];
+  };
   const tpl = NOTIFY_TEMPLATES[type];
   if (!tpl) return NextResponse.json({ error: "Unknown notification type" }, { status: 400 });
 
@@ -62,6 +65,13 @@ export const POST = withAuthParams<{ id: string }>(async (req, { garageId, profi
       });
       msgkartId = result.messageId || null;
       status = result.status === "failed" ? "failed" : "sent";
+
+      // Send each media file as a follow-up message after the template
+      if (status !== "failed" && mediaUrls && mediaUrls.length > 0) {
+        for (const m of mediaUrls) {
+          await wa.sendMedia(phone, m.url, undefined, m.mediaType).catch(() => null);
+        }
+      }
     } catch (err) {
       console.error("[notify] WhatsApp failed", err);
       status = "failed";
