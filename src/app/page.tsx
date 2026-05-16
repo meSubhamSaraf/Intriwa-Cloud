@@ -207,27 +207,10 @@ function EmailLoginForm({ prefill }: { prefill?: { email: string; password: stri
 
 // ── Test credentials panel ────────────────────────────────────────────────
 
-// Demo credentials — set these env vars to your actual Supabase test accounts.
-// All use email + password so no SMS provider is needed for testing.
 const DEMO_CREDS = [
-  {
-    role: "Customer",
-    icon: "🚗",
-    email: process.env.NEXT_PUBLIC_DEMO_CUSTOMER_EMAIL ?? "",
-    password: process.env.NEXT_PUBLIC_DEMO_CUSTOMER_PASS ?? "",
-  },
-  {
-    role: "Manager",
-    icon: "👤",
-    email: process.env.NEXT_PUBLIC_DEMO_MANAGER_EMAIL ?? "",
-    password: process.env.NEXT_PUBLIC_DEMO_MANAGER_PASS ?? "",
-  },
-  {
-    role: "Mechanic",
-    icon: "🔧",
-    email: process.env.NEXT_PUBLIC_DEMO_MECHANIC_EMAIL ?? "",
-    password: process.env.NEXT_PUBLIC_DEMO_MECHANIC_PASS ?? "",
-  },
+  { role: "Customer", icon: "🚗", email: "customer.demo@intriwa.in", password: "Intriwa@2026" },
+  { role: "Manager",  icon: "👤", email: "", password: "" },
+  { role: "Mechanic", icon: "🔧", email: "", password: "" },
 ];
 
 function TestCredentials({
