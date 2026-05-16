@@ -12,7 +12,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
-const PUBLIC_ROUTES = ["/login", "/api/auth/callback", "/auth/reset-password", "/api/webhooks", "/portal"];
+const PUBLIC_ROUTES = ["/login", "/api/auth/callback", "/auth/reset-password", "/api/webhooks", "/portal", "/api/portal"];
 
 function isPublic(pathname: string) {
   return PUBLIC_ROUTES.some((p) => pathname.startsWith(p));
@@ -47,6 +47,9 @@ export async function proxy(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
 
+  // Root is the public marketing/login page
+  if (pathname === "/") return response;
+
   if (!user && !isPublic(pathname)) {
     const loginUrl = request.nextUrl.clone();
     loginUrl.pathname = "/login";
@@ -54,7 +57,8 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  if (user && pathname === "/login") {
+  // Already logged in — redirect away from login/root to appropriate home
+  if (user && (pathname === "/login" || pathname === "/")) {
     const homeUrl = request.nextUrl.clone();
     homeUrl.pathname =
       user.user_metadata?.role === "MECHANIC" ? "/mechanic-portal" : "/dashboard";
