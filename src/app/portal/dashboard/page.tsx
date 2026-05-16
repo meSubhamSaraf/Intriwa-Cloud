@@ -159,7 +159,7 @@ export default function PortalDashboard() {
   async function signOut() {
     const supabase = createBrowserConnector();
     await supabase.auth.signOut();
-    router.push("/portal");
+    router.push("/");
   }
 
   if (loading) {

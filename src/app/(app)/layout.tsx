@@ -11,7 +11,7 @@ function MechanicHeader() {
   async function signOut() {
     const supabase = createBrowserConnector();
     await supabase.auth.signOut();
-    window.location.href = "/login";
+    window.location.href = "/";
   }
   return (
     <header className="h-12 bg-brand-navy-800 flex items-center justify-between px-4 shrink-0">
