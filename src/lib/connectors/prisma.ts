@@ -18,8 +18,9 @@ type PrismaClientSingleton = ReturnType<typeof makePrismaClient>;
 function makePrismaClient() {
   const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
-    // Keep pool small for serverless — Supabase pooler handles the real pooling
-    max: 2,
+    // Supabase pooler sits in front, so 10 here is safe; each Vercel function
+    // instance gets its own pool and the pooler caps real DB connections.
+    max: 10,
   });
   const adapter = new PrismaPg(pool);
   return new PrismaClient({
