@@ -78,19 +78,15 @@ export const POST = withAuthParams<{ id: string }>(async (_req, { garageId }, { 
   let whatsappSent = false;
   if (customer && customerPhone && paymentLinkUrl) {
     try {
-      if (!process.env.MSGKART_API_KEY || !process.env.MSGKART_SENDER_ID) {
+      if (!process.env.MSGKART_API_KEY || !process.env.MSGKART_BUSINESS_ID) {
         throw new Error("MsgKart env vars not configured");
       }
       const wa = new MsgKartPlugin();
       const phone = "91" + customerPhone.replace(/\D/g, "").slice(-10);
-      const result = await wa.sendTemplate({
-        to: phone,
-        templateName: "invoice_ready",
-        variables: {
-          name: customer.name,
-          amount: String(Math.round(Number(invoice.total))),
-          link: paymentLinkUrl,
-        },
+      const result = await wa.sendTemplate(phone, "invoice_ready", {
+        name: customer.name,
+        amount: String(Math.round(Number(invoice.total))),
+        link: paymentLinkUrl,
       });
       whatsappSent = result.status !== "failed";
     } catch (err) {

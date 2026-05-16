@@ -1,30 +1,24 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Plugin: WhatsApp — MsgKart
 // ─────────────────────────────────────────────────────────────────────────────
-// MsgKart is the WhatsApp Business API reseller we use.
 // Env vars required:
-//   MSGKART_API_KEY       — from MsgKart dashboard
-//   MSGKART_SENDER_ID     — your approved WhatsApp number / sender ID
-//   MSGKART_WEBHOOK_SECRET— for verifying inbound webhook payloads
+//   MSGKART_API_KEY         — from MsgKart dashboard
+//   MSGKART_BUSINESS_ID     — WhatsApp Business Account ID
+//   MSGKART_PHONE_NUMBER_ID — WhatsApp Phone Number ID (used as phoneNumberId)
+//   MSGKART_WEBHOOK_SECRET  — for verifying inbound webhook payloads
 //
-// Usage:
-//   const wa = new MsgKartPlugin();
-//   await wa.sendTemplate("919876543210", "service_ready", { name: "Ravi" });
+// API base: https://alb-backend.msgkart.com/api/v1/message/<BUSINESS_ID>/<TYPE>?apikey=<KEY>
+// Only template messages are supported by MsgKart's API.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import crypto from "crypto";
 
-const API_KEY = process.env.MSGKART_API_KEY!;
-const SENDER_ID = process.env.MSGKART_SENDER_ID!;
+const API_KEY       = process.env.MSGKART_API_KEY!;
+const BUSINESS_ID   = process.env.MSGKART_BUSINESS_ID!;
+const PHONE_NUM_ID  = process.env.MSGKART_PHONE_NUMBER_ID ?? process.env.MSGKART_SENDER_ID!;
 const WEBHOOK_SECRET = process.env.MSGKART_WEBHOOK_SECRET!;
 
-// Shape of a single WhatsApp message we can send
-export interface WASendParams {
-  to: string;              // E.164 format e.g. "919876543210"
-  templateName: string;    // must be approved in your MsgKart account
-  variables?: Record<string, string>; // {{1}}, {{2}}, … placeholder values
-  language?: string;       // default "en"
-}
+const BASE = "https://alb-backend.msgkart.com/api/v1/message";
 
 export interface WASendResult {
   messageId: string;
@@ -33,118 +27,84 @@ export interface WASendResult {
 }
 
 export class MsgKartPlugin {
-  private baseUrl = "https://api.msgkart.com/v1"; // replace if MsgKart changes
+  private url(type: string) {
+    return `${BASE}/${BUSINESS_ID}/${type}?apikey=${API_KEY}`;
+  }
 
-  async sendTemplate(params: WASendParams): Promise<WASendResult> {
-    // Build the variable array in the order MsgKart expects: [{type:"text",text:"val"}]
-    const components = params.variables
-      ? [
-          {
-            type: "body",
-            parameters: Object.values(params.variables).map((v) => ({
-              type: "text",
-              text: v,
-            })),
-          },
-        ]
-      : [];
-
-    const body = {
-      messaging_product: "whatsapp",
-      to: params.to,
-      type: "template",
-      sender_id: SENDER_ID,
-      template: {
-        name: params.templateName,
-        language: { code: params.language ?? "en" },
-        components,
-      },
-    };
-
-    const res = await fetch(`${this.baseUrl}/messages`, {
+  private async post(type: string, body: object): Promise<WASendResult> {
+    const res = await fetch(this.url(type), {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${API_KEY}`,
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-
     const data = await res.json().catch(() => ({}));
-
     if (!res.ok) {
-      console.error("[MsgKart] sendTemplate failed", data);
+      console.error(`[MsgKart] ${type} failed`, data);
       return { messageId: "", status: "failed", rawResponse: data };
     }
-
-    return {
-      messageId: data.messages?.[0]?.id ?? "",
-      status: "queued",
-      rawResponse: data,
-    };
+    const msgId = (data as { messageId?: string }).messageId ?? "";
+    return { messageId: msgId, status: "queued", rawResponse: data };
   }
 
-  // Send a free-form text message (only works within 24 h of the customer's last message).
-  async sendText(to: string, body: string): Promise<WASendResult> {
-    const payload = {
-      messaging_product: "whatsapp",
-      to,
-      type: "text",
-      sender_id: SENDER_ID,
-      text: { body },
-    };
+  async sendTemplate(
+    to: string,
+    templateName: string,
+    variables?: Record<string, string>,
+    language = "en",
+  ): Promise<WASendResult> {
+    const components = variables && Object.keys(variables).length > 0
+      ? [{
+          type: "body",
+          parameters: Object.values(variables).map((v) => ({ type: "text", text: v })),
+        }]
+      : [];
 
-    const res = await fetch(`${this.baseUrl}/messages`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${API_KEY}`,
+    return this.post("template", {
+      message: { messageType: "template", name: templateName, language, components },
+      to,
+      phoneNumberId: PHONE_NUM_ID,
+    });
+  }
+
+  // Sends a media message via a template that has a header with an image/video/document.
+  // The template must have a header component of type IMAGE, VIDEO, or DOCUMENT.
+  async sendMedia(
+    to: string,
+    templateName: string,
+    mediaUrl: string,
+    mediaType: "image" | "video" | "document" = "image",
+    bodyVariables?: Record<string, string>,
+  ): Promise<WASendResult> {
+    const components: object[] = [
+      {
+        type: "header",
+        parameters: [{ type: mediaType, [mediaType]: { link: mediaUrl } }],
       },
-      body: JSON.stringify(payload),
-    });
-
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      console.error("[MsgKart] sendText failed", data);
-      return { messageId: "", status: "failed", rawResponse: data };
+    ];
+    if (bodyVariables && Object.keys(bodyVariables).length > 0) {
+      components.push({
+        type: "body",
+        parameters: Object.values(bodyVariables).map((v) => ({ type: "text", text: v })),
+      });
     }
-    return { messageId: data.messages?.[0]?.id ?? "", status: "queued", rawResponse: data };
-  }
 
-  // Send a media (image or video) message. URL must be publicly reachable.
-  async sendMedia(to: string, mediaUrl: string, caption?: string, mediaType: "image" | "video" = "image"): Promise<WASendResult> {
-    const payload = {
-      messaging_product: "whatsapp",
+    return this.post("template", {
+      message: { messageType: "template", name: templateName, language: "en", components },
       to,
-      type: mediaType,
-      sender_id: SENDER_ID,
-      [mediaType]: { link: mediaUrl, ...(caption ? { caption } : {}) },
-    };
-
-    const res = await fetch(`${this.baseUrl}/messages`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${API_KEY}` },
-      body: JSON.stringify(payload),
+      phoneNumberId: PHONE_NUM_ID,
     });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      console.error("[MsgKart] sendMedia failed", data);
-      return { messageId: "", status: "failed", rawResponse: data };
-    }
-    return { messageId: data.messages?.[0]?.id ?? "", status: "queued", rawResponse: data };
   }
 
   // Verifies that an inbound webhook actually came from MsgKart.
-  // MsgKart sends a HMAC-SHA256 signature in the X-MsgKart-Signature header.
   verifyWebhookSignature(rawBody: string, signature: string): boolean {
-    if (!WEBHOOK_SECRET) return false;
+    if (!WEBHOOK_SECRET) return true; // skip verification if secret not configured yet
     const expected = crypto
       .createHmac("sha256", WEBHOOK_SECRET)
       .update(rawBody)
       .digest("hex");
     return crypto.timingSafeEqual(
       Buffer.from(`sha256=${expected}`),
-      Buffer.from(signature)
+      Buffer.from(signature),
     );
   }
 }

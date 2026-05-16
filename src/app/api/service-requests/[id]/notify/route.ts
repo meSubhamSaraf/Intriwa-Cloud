@@ -53,25 +53,18 @@ export const POST = withAuthParams<{ id: string }>(async (req, { garageId, profi
   let msgkartId: string | null = null;
   let status = "sent";
 
-  if (!process.env.MSGKART_API_KEY || !process.env.MSGKART_SENDER_ID) {
+  if (!process.env.MSGKART_API_KEY || !process.env.MSGKART_BUSINESS_ID) {
     status = "failed";
   } else {
     try {
       const wa = new MsgKartPlugin();
-      const result = await wa.sendTemplate({
-        to: phone,
-        templateName: tpl.template,
-        variables: { name: customerName, vehicle: vehicleLabel, srNumber: sr.srNumber },
-      });
+      const result = await wa.sendTemplate(
+        phone,
+        tpl.template,
+        { name: customerName, vehicle: vehicleLabel, srNumber: sr.srNumber },
+      );
       msgkartId = result.messageId || null;
       status = result.status === "failed" ? "failed" : "sent";
-
-      // Send each media file as a follow-up message after the template
-      if (status !== "failed" && mediaUrls && mediaUrls.length > 0) {
-        for (const m of mediaUrls) {
-          await wa.sendMedia(phone, m.url, undefined, m.mediaType).catch(() => null);
-        }
-      }
     } catch (err) {
       console.error("[notify] WhatsApp failed", err);
       status = "failed";

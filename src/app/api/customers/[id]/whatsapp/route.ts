@@ -24,14 +24,13 @@ export const POST = withAuthParams<{ id: string }>(async (req, { garageId, profi
   if (!customer.phone) return NextResponse.json({ error: "Customer has no phone number" }, { status: 422 });
 
   const body = await req.json();
-  const { text, templateName, variables } = body as {
-    text?: string;
+  const { templateName, variables } = body as {
     templateName?: string;
     variables?: Record<string, string>;
   };
 
-  if (!text && !templateName) {
-    return NextResponse.json({ error: "Provide either text or templateName" }, { status: 400 });
+  if (!templateName) {
+    return NextResponse.json({ error: "Provide a templateName — MsgKart only supports templates" }, { status: 400 });
   }
 
   const phone = "91" + customer.phone.replace(/\D/g, "").slice(-10);
@@ -39,22 +38,13 @@ export const POST = withAuthParams<{ id: string }>(async (req, { garageId, profi
 
   let msgkartId: string | null = null;
   let status = "sent";
-  let messageBody = text ?? templateName ?? "";
 
-  if (!process.env.MSGKART_API_KEY || !process.env.MSGKART_SENDER_ID) {
-    // WhatsApp not connected yet — save the message but mark as failed
+  if (!process.env.MSGKART_API_KEY || !process.env.MSGKART_BUSINESS_ID) {
     status = "failed";
   } else {
     try {
       const wa = new MsgKartPlugin();
-      let result;
-      if (templateName) {
-        result = await wa.sendTemplate({ to: phone, templateName, variables });
-        messageBody = templateName;
-      } else {
-        result = await wa.sendText(phone, text!);
-        messageBody = text!;
-      }
+      const result = await wa.sendTemplate(phone, templateName, variables);
       msgkartId = result.messageId || null;
       status = result.status === "failed" ? "failed" : "sent";
     } catch (err) {
@@ -68,7 +58,7 @@ export const POST = withAuthParams<{ id: string }>(async (req, { garageId, profi
       garageId,
       customerId: id,
       direction: "outbound",
-      body: messageBody,
+      body: templateName,
       templateName: templateName ?? null,
       status,
       msgkartId,

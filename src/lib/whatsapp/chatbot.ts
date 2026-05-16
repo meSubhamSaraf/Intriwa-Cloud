@@ -455,11 +455,9 @@ export class WhatsAppChatbot {
 
   // ── Sender ──────────────────────────────────────────────────────────────────
 
-  private async send(to: string, body: string) {
-    try {
-      await this.wa.sendText(to, body);
-    } catch (err) {
-      console.error("[chatbot] sendText failed", err);
-    }
+  // MsgKart only supports pre-approved templates — free-text chatbot replies are not deliverable.
+  // This method is a no-op until a template-based chatbot flow is implemented.
+  private async send(_to: string, _body: string) {
+    console.warn("[chatbot] sendText skipped — MsgKart only supports templates, not free text");
   }
 }
