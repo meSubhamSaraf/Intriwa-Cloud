@@ -11,7 +11,18 @@ export const GET = withAuthParams<{ id: string }>(async (_req, _ctx, { id }) => 
       where: { id },
       include: {
         customer: true,
-        serviceRequests: { orderBy: { createdAt: "desc" }, take: 20 },
+        serviceRequests: {
+          orderBy: { createdAt: "desc" },
+          take: 30,
+          select: {
+            id: true, srNumber: true, status: true, locationType: true,
+            complaint: true, scheduledAt: true, createdAt: true,
+            kmBefore: true, kmAfter: true,
+            items: {
+              select: { description: true, quantity: true, unitPrice: true, total: true },
+            },
+          },
+        },
       },
     }),
     prisma.invoice.aggregate({

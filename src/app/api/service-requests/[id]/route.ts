@@ -20,18 +20,33 @@ export const PATCH = withAuthParams<{ id: string }>(async (req, { garageId, prof
   if (body.status) {
     const updated = await srService.updateStatus(id, body.status, profile.id, profile.name);
 
-    // If kmTravelled was sent alongside status update, persist it + compute fuel allowance
+    const extraData: Record<string, unknown> = {};
+
+    // kmBefore: vehicle odometer captured when mechanic starts the job
+    if (body.kmBefore !== undefined) {
+      extraData.kmBefore = Number(body.kmBefore);
+    }
+
+    // kmAfter: vehicle odometer captured when mechanic completes the job
+    if (body.kmAfter !== undefined) {
+      extraData.kmAfter = Number(body.kmAfter);
+      // Propagate the latest odometer reading back to the vehicle record
+      const sr = await prisma.serviceRequest.findUnique({ where: { id }, select: { vehicleId: true } });
+      if (sr?.vehicleId) {
+        await prisma.vehicle.update({ where: { id: sr.vehicleId }, data: { odometer: Number(body.kmAfter) } });
+      }
+    }
+
+    // kmTravelled: mechanic travel distance (field/society fuel allowance)
     if (body.kmTravelled !== undefined) {
-      const garage = await prisma.garage.findUnique({
-        where: { id: garageId },
-        select: { fuelRatePerKm: true },
-      });
+      const garage = await prisma.garage.findUnique({ where: { id: garageId }, select: { fuelRatePerKm: true } });
       const rate = Number(garage?.fuelRatePerKm ?? 6);
-      const fuelAllowance = Number(body.kmTravelled) * rate;
-      await prisma.serviceRequest.update({
-        where: { id },
-        data: { kmTravelled: Number(body.kmTravelled), fuelAllowance },
-      });
+      extraData.kmTravelled = Number(body.kmTravelled);
+      extraData.fuelAllowance = Number(body.kmTravelled) * rate;
+    }
+
+    if (Object.keys(extraData).length > 0) {
+      await prisma.serviceRequest.update({ where: { id }, data: extraData });
     }
 
     return NextResponse.json(updated);

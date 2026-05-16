@@ -10,7 +10,8 @@ export const GET = withAuth(async (_req, { garageId }) => {
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
   const todayEnd   = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
 
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const monthStart   = new Date(now.getFullYear(), now.getMonth(), 1);
+  const sixMonthsAgo = new Date(now.getTime() - 6 * 30 * 24 * 60 * 60 * 1000);
 
   const [
     todaysJobs,
@@ -21,6 +22,8 @@ export const GET = withAuth(async (_req, { garageId }) => {
     revenueAgg,
     recentSRs,
     mechanicStatuses,
+    totalCustomers,
+    activeCustomers,
   ] = await Promise.all([
     prisma.serviceRequest.count({
       where: {
@@ -74,6 +77,15 @@ export const GET = withAuth(async (_req, { garageId }) => {
       where: { garageId, isActive: true },
       select: { id: true, name: true, isAvailable: true, employmentType: true },
     }),
+
+    prisma.customer.count({ where: { garageId } }),
+
+    prisma.customer.count({
+      where: {
+        garageId,
+        serviceRequests: { some: { garageId, openedAt: { gte: sixMonthsAgo } } },
+      },
+    }),
   ]);
 
   return NextResponse.json({
@@ -85,5 +97,7 @@ export const GET = withAuth(async (_req, { garageId }) => {
     revenueThisMonth: Number(revenueAgg._sum.total ?? 0),
     recentSRs,
     mechanicStatuses,
+    totalCustomers,
+    activeCustomers,
   });
 });

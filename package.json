@@ -14,7 +14,9 @@
     "test": "playwright test",
     "test:ui": "playwright test --ui",
     "test:headed": "playwright test --headed",
-    "test:report": "playwright show-report"
+    "test:report": "playwright show-report",
+    "test:linear": "playwright test --reporter=html,./tests/reporters/linear-reporter.ts",
+    "scenarios:sync": "tsx scripts/sync-scenarios-to-linear.ts scenarios.md"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
-  Car, ArrowLeft, Wrench, User, Calendar, Fuel,
+  Car, ArrowLeft, Wrench, User, Fuel, Gauge,
   ShieldCheck, FileText, AlertTriangle, ChevronRight,
   Edit2, Check, X,
 } from "lucide-react";
@@ -13,15 +13,20 @@ import { toast } from "sonner";
 
 // ── Types ─────────────────────────────────────────────────────────
 
+type SRItem = { description: string; quantity: number; unitPrice: number; total: number };
+
 type SR = {
   id: string; srNumber: string; status: string;
   locationType: string | null; complaint: string | null;
   scheduledAt: string | null; createdAt: string;
+  kmBefore: number | null; kmAfter: number | null;
+  items: SRItem[];
 };
 
 type Vehicle = {
   id: string; make: string; model: string; year: number | null;
   regNumber: string | null; type: string; fuelType: string; color: string | null;
+  odometer: number | null;
   pucExpiry: string | null; insuranceExpiry: string | null;
   lifetimeSpend: number;
   customer: { id: string; name: string; phone: string } | null;
@@ -223,11 +228,12 @@ export default function VehicleDetailPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-slate-100">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4 pt-4 border-t border-slate-100">
           {[
             { label: "Total Services", value: `${vSRs.length} (${completedCount} done)`, icon: Wrench },
             { label: "Owner", value: owner?.name ?? "—", icon: User },
             { label: "Lifetime Spend", value: vehicle.lifetimeSpend > 0 ? `₹${vehicle.lifetimeSpend.toLocaleString("en-IN")}` : "—", icon: FileText },
+            { label: "Last Odometer", value: vehicle.odometer != null ? `${vehicle.odometer.toLocaleString("en-IN")} km` : "—", icon: Gauge },
           ].map(({ label, value, icon: Icon }) => (
             <div key={label} className="flex items-center gap-2">
               <div className="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center shrink-0">
@@ -256,37 +262,89 @@ export default function VehicleDetailPage() {
 
       {/* Service History tab */}
       {tab === "history" && (
-        <div className="space-y-2">
+        <div className="space-y-3">
           {vSRs.length === 0 && (
             <div className="bg-white border border-slate-200 rounded-lg p-8 text-center text-slate-400">
               <Wrench className="w-8 h-8 mx-auto mb-2 opacity-30" />
               <p className="text-sm">No service history yet.</p>
             </div>
           )}
-          {vSRs.map((sr) => (
-            <Link key={sr.id} href={`/services/${sr.id}`}
-              className="block bg-white border border-slate-200 rounded-lg p-3 hover:border-brand-navy-300 hover:shadow-sm transition-all">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
+          {vSRs.map((sr) => {
+            const kmRange = sr.kmBefore != null || sr.kmAfter != null;
+            const kmDelta = sr.kmBefore != null && sr.kmAfter != null ? sr.kmAfter - sr.kmBefore : null;
+            return (
+              <Link key={sr.id} href={`/services/${sr.id}`}
+                className="block bg-white border border-slate-200 rounded-lg hover:border-brand-navy-300 hover:shadow-sm transition-all overflow-hidden">
+
+                {/* Header row */}
+                <div className="flex items-center justify-between px-3 py-2.5 border-b border-slate-100 bg-slate-50">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-mono text-[11px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">{sr.srNumber}</span>
                     <StatusBadge status={STATUS_DISPLAY[sr.status] ?? sr.status.toLowerCase()} />
                     {sr.locationType && (
-                      <span className="text-[10px] font-medium px-1.5 py-0.5 rounded border text-slate-600 bg-slate-50 border-slate-200">
+                      <span className="text-[10px] font-medium px-1.5 py-0.5 rounded border text-slate-600 bg-white border-slate-200">
                         {sr.locationType === "FIELD" ? "Intrapremise" : sr.locationType === "SOCIETY" ? "Society" : "OPC"}
                       </span>
                     )}
                   </div>
+                  <p className="text-[10px] text-slate-400 shrink-0">{fmtDate(sr.scheduledAt ?? sr.createdAt)}</p>
+                </div>
+
+                <div className="px-3 py-2.5 space-y-2">
+                  {/* Complaint */}
                   {sr.complaint && (
-                    <p className="text-xs text-slate-600 mt-1 line-clamp-1">{sr.complaint}</p>
+                    <p className="text-xs text-slate-600 line-clamp-2">{sr.complaint}</p>
+                  )}
+
+                  {/* KM readings */}
+                  {kmRange && (
+                    <div className="flex items-center gap-3 text-[11px]">
+                      <Gauge className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      {sr.kmBefore != null && (
+                        <span className="text-slate-500">
+                          Before: <span className="font-semibold text-slate-700 tabular-nums">{sr.kmBefore.toLocaleString("en-IN")} km</span>
+                        </span>
+                      )}
+                      {sr.kmBefore != null && sr.kmAfter != null && (
+                        <ChevronRight className="w-3 h-3 text-slate-300" />
+                      )}
+                      {sr.kmAfter != null && (
+                        <span className="text-slate-500">
+                          After: <span className="font-semibold text-slate-700 tabular-nums">{sr.kmAfter.toLocaleString("en-IN")} km</span>
+                        </span>
+                      )}
+                      {kmDelta != null && kmDelta > 0 && (
+                        <span className="text-[10px] text-slate-400 ml-auto tabular-nums">+{kmDelta.toLocaleString("en-IN")} km</span>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Services done */}
+                  {sr.items.length > 0 && (
+                    <div className="space-y-1">
+                      {sr.items.slice(0, 4).map((item, i) => (
+                        <div key={i} className="flex items-center justify-between text-[11px]">
+                          <span className="text-slate-600 truncate max-w-[70%]">
+                            {item.quantity > 1 ? `${item.quantity}× ` : ""}{item.description}
+                          </span>
+                          <span className="text-slate-500 tabular-nums shrink-0">
+                            ₹{Number(item.total).toLocaleString("en-IN")}
+                          </span>
+                        </div>
+                      ))}
+                      {sr.items.length > 4 && (
+                        <p className="text-[10px] text-slate-400">+{sr.items.length - 4} more services</p>
+                      )}
+                    </div>
+                  )}
+
+                  {sr.items.length === 0 && !sr.complaint && !kmRange && (
+                    <p className="text-[11px] text-slate-400 italic">No details recorded</p>
                   )}
                 </div>
-                <div className="text-right shrink-0">
-                  <p className="text-[10px] text-slate-400">{fmtDate(sr.scheduledAt ?? sr.createdAt)}</p>
-                </div>
-              </div>
-            </Link>
-          ))}
+              </Link>
+            );
+          })}
         </div>
       )}
 

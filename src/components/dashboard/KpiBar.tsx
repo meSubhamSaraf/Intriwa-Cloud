@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { CalendarDays, UserPlus, Phone, Wrench, UserCog, Receipt } from "lucide-react";
+import { CalendarDays, UserPlus, Users, UserCheck, Wrench, UserCog, Receipt } from "lucide-react";
 
 type Stats = {
   todaysJobs: number;
@@ -11,6 +11,8 @@ type Stats = {
   pendingInvoices: number;
   overdueInvoices: number;
   revenueThisMonth: number;
+  totalCustomers: number;
+  activeCustomers: number;
 };
 
 interface KpiCardProps {
@@ -94,11 +96,22 @@ export function KpiBar() {
         href="/invoices"
       />
       <KpiCard
-        icon={Phone}
-        label="Follow-ups"
-        value="—"
-        sub="coming soon"
-        href="/leads"
+        icon={Users}
+        label="Total Customers"
+        value={s?.totalCustomers ?? "—"}
+        sub="registered customers"
+        href="/customers"
+      />
+      <KpiCard
+        icon={UserCheck}
+        label="Active Customers"
+        value={s?.activeCustomers ?? "—"}
+        sub={
+          s
+            ? <span>{Math.round((s.activeCustomers / (s.totalCustomers || 1)) * 100)}% active in 6 months</span>
+            : "with order in last 6 months"
+        }
+        href="/customers"
       />
     </div>
   );

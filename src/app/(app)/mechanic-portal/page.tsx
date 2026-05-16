@@ -294,33 +294,68 @@ function ObservationModal({
   );
 }
 
-// ── Km Input Modal ────────────────────────────────────────────────
+// ── KM Reading Modal ──────────────────────────────────────────────
+// Used for both "before service" (job start) and "after service" (job complete).
 
-function KmInputModal({ sr, onClose, onConfirm }: {
-  sr: SR; onClose: () => void; onConfirm: (km: number) => void;
+function KmReadingModal({ phase, sr, onClose, onConfirm }: {
+  phase: "before" | "after";
+  sr: SR;
+  onClose: () => void;
+  // onConfirm: (vehicleKm: number, travelledKm?: number) => void
+  onConfirm: (vehicleKm: number, travelledKm?: number) => void;
 }) {
-  const [km, setKm] = useState("");
+  const [reading, setReading] = useState("");
+  const [travelled, setTravelled] = useState("");
+  const isField = phase === "after" && (sr.locationType === "FIELD" || sr.locationType === "SOCIETY");
+  const isValid = reading !== "" && Number(reading) >= 0 && (!isField || travelled !== "");
+
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-5">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold text-slate-800 text-sm">Enter Distance Travelled</h3>
+        <div className="flex items-center justify-between mb-1">
+          <h3 className="font-semibold text-slate-800 text-sm flex items-center gap-2">
+            <MapPin className="w-4 h-4 text-brand-navy-600" />
+            {phase === "before" ? "Vehicle KM Before Service" : "Vehicle KM After Service"}
+          </h3>
           <button onClick={onClose}><X className="w-4 h-4 text-slate-400" /></button>
         </div>
         <p className="text-xs text-slate-500 mb-4">
-          Enter the total km you travelled for this {sr.locationType === "FIELD" ? "field" : "society"} job.
-          A fuel allowance will be added to your payout automatically.
+          {phase === "before"
+            ? "Record the vehicle's current odometer reading before you start work."
+            : "Record the vehicle's odometer reading now that service is complete."}
         </p>
-        <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1">Distance (km)</label>
-          <input
-            type="number" min={0} value={km}
-            onChange={(e) => setKm(e.target.value)}
-            placeholder="e.g. 12"
-            className="w-full h-10 px-3 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-brand-navy-400"
-            autoFocus
-          />
+
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">
+              Odometer reading (km) <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="number" min={0} value={reading} autoFocus
+              onChange={(e) => setReading(e.target.value)}
+              placeholder="e.g. 24500"
+              className="w-full h-10 px-3 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-brand-navy-400"
+            />
+          </div>
+
+          {isField && (
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">
+                Distance you travelled (km) <span className="text-red-500">*</span>
+              </label>
+              <p className="text-[10px] text-slate-400 mb-1">
+                A fuel allowance will be added to your payout.
+              </p>
+              <input
+                type="number" min={0} value={travelled}
+                onChange={(e) => setTravelled(e.target.value)}
+                placeholder="e.g. 8"
+                className="w-full h-10 px-3 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-brand-navy-400"
+              />
+            </div>
+          )}
         </div>
+
         <div className="flex gap-2 mt-4">
           <button type="button" onClick={onClose}
             className="flex-1 h-10 border border-slate-200 text-sm text-slate-600 rounded-xl hover:bg-slate-50">
@@ -328,11 +363,11 @@ function KmInputModal({ sr, onClose, onConfirm }: {
           </button>
           <button
             type="button"
-            disabled={!km || Number(km) < 0}
-            onClick={() => onConfirm(Number(km))}
+            disabled={!isValid}
+            onClick={() => onConfirm(Number(reading), isField ? Number(travelled) : undefined)}
             className="flex-1 h-10 bg-brand-navy-800 text-white text-sm font-medium rounded-xl hover:bg-brand-navy-700 disabled:opacity-60"
           >
-            Confirm &amp; Complete
+            {phase === "before" ? "Start Job" : "Complete Job"}
           </button>
         </div>
       </div>
@@ -353,7 +388,8 @@ function JobsTab({ mechanic, available, onToggleAvailability, clockingIn }: {
   const [obsFor, setObsFor] = useState<SR | null>(null);
   const [notifyFor, setNotifyFor] = useState<string | null>(null);
   const [notifying, setNotifying] = useState<Record<string, boolean>>({});
-  const [kmFor, setKmFor] = useState<SR | null>(null);
+  // kmFor tracks which SR is waiting for a KM reading and whether it's the before or after phase
+  const [kmFor, setKmFor] = useState<{ sr: SR; phase: "before" | "after" } | null>(null);
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   function getStatus(srId: string, base: string) { return localStatuses[srId] ?? base; }
@@ -373,7 +409,7 @@ function JobsTab({ mechanic, available, onToggleAvailability, clockingIn }: {
     finally { setNotifying(n => ({ ...n, [srId]: false })); }
   }
 
-  async function advanceStatus(sr: SR, kmTravelled?: number) {
+  async function advanceStatus(sr: SR, kmReading?: number, kmTravelled?: number) {
     const status = getStatus(sr.id, sr.status);
     const adv = SR_STATUS_ADVANCE[status];
     if (!adv) return;
@@ -381,15 +417,21 @@ function JobsTab({ mechanic, available, onToggleAvailability, clockingIn }: {
       toast.error("Capture at least one photo before updating the job status.");
       return;
     }
-    // For FIELD/SOCIETY jobs completing to READY, require km input
-    if (adv.next === "READY" && (sr.locationType === "FIELD" || sr.locationType === "SOCIETY") && kmTravelled === undefined) {
-      setKmFor(sr);
+    // Always require vehicle KM reading — open the appropriate modal if not yet provided
+    if (kmReading === undefined) {
+      const phase = adv.next === "IN_PROGRESS" ? "before" : "after";
+      setKmFor({ sr, phase });
       return;
     }
     setAdvancing(a => ({ ...a, [sr.id]: true }));
     try {
       const body: Record<string, unknown> = { status: adv.next };
-      if (kmTravelled !== undefined) body.kmTravelled = kmTravelled;
+      if (adv.next === "IN_PROGRESS") {
+        body.kmBefore = kmReading;
+      } else {
+        body.kmAfter = kmReading;
+        if (kmTravelled !== undefined) body.kmTravelled = kmTravelled;
+      }
       const res = await fetch(`/api/service-requests/${sr.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -664,10 +706,15 @@ function JobsTab({ mechanic, available, onToggleAvailability, clockingIn }: {
         />
       )}
       {kmFor && (
-        <KmInputModal
-          sr={kmFor}
+        <KmReadingModal
+          phase={kmFor.phase}
+          sr={kmFor.sr}
           onClose={() => setKmFor(null)}
-          onConfirm={(km) => { setKmFor(null); advanceStatus(kmFor, km); }}
+          onConfirm={(vehicleKm, travelledKm) => {
+            const pending = kmFor;
+            setKmFor(null);
+            advanceStatus(pending.sr, vehicleKm, travelledKm);
+          }}
         />
       )}
 

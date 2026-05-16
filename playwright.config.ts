@@ -5,7 +5,10 @@ export default defineConfig({
   fullyParallel: false, // run sequentially to avoid DB race conditions
   retries: 1,
   timeout: 30_000,
-  reporter: "html",
+  // Use `npm run test:linear` to also file Linear issues on failure
+  reporter: process.env.LINEAR_API_KEY
+    ? [["html"], ["./tests/reporters/linear-reporter.ts"]]
+    : "html",
 
   use: {
     baseURL: process.env.TEST_BASE_URL ?? "http://localhost:3000",
@@ -20,7 +23,7 @@ export default defineConfig({
 
     {
       name: "manager",
-      testMatch: "**/manager-sr-lifecycle.spec.ts",
+      testMatch: /.*\/manager-.*\.spec\.ts$/,
       use: {
         ...devices["Desktop Chrome"],
         storageState: "tests/e2e/.auth/manager.json",

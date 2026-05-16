@@ -518,7 +518,9 @@ model ServiceRequest {
   customerLat     Float?
   customerLng     Float?
   customerAddress String? // reverse-geocoded or as-typed
-  kmTravelled     Int?
+  kmBefore        Int?         // Vehicle odometer reading before service starts
+  kmAfter         Int?         // Vehicle odometer reading after service completes
+  kmTravelled     Int?         // Mechanic travel distance (field/society jobs only)
   fuelAllowance   Decimal?     @db.Decimal(10, 2)
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
