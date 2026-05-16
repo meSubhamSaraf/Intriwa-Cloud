@@ -186,7 +186,7 @@ function EmailLoginForm({ prefill }: { prefill?: { email: string; password: stri
     <form onSubmit={handleSignIn} className="space-y-3">
       {error && <div className="px-3 py-2.5 rounded-lg bg-red-50 border border-red-200 text-xs text-red-700">{error}</div>}
       <input type="email" value={email} onChange={e => setEmail(e.target.value)}
-        placeholder="Work email" required autoComplete="email"
+        placeholder="Email address" required autoComplete="email"
         className="w-full h-12 px-4 text-sm border border-slate-200 rounded-xl bg-white text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-navy-400 focus:border-transparent transition-all" />
       <div className="relative">
         <input type={showPw ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)}
@@ -265,7 +265,7 @@ function TestCredentials({
                   </button>
                 </div>
               ))}
-              <p className="text-[10px] text-slate-400 text-center">Uses Staff Login tab — no OTP needed</p>
+              <p className="text-[10px] text-slate-400 text-center">Uses Login tab — no OTP needed</p>
             </>
           )}
         </div>
@@ -301,7 +301,7 @@ function LoginCard() {
         </button>
         <button onClick={() => setTab("email")}
           className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 transition-colors ${tab === "email" ? "bg-brand-navy-900 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}>
-          <Mail className="w-3.5 h-3.5" /> Staff Login
+          <Mail className="w-3.5 h-3.5" /> Login
         </button>
       </div>
 
