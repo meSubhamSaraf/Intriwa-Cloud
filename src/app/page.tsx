@@ -207,22 +207,39 @@ function EmailLoginForm({ prefill }: { prefill?: { email: string; password: stri
 
 // ── Test credentials panel ────────────────────────────────────────────────
 
-type DemoCred = { role: string; icon: string; field: string; value: string; hint: string };
-
-const DEMO_CREDS: DemoCred[] = [
-  { role: "Customer",       icon: "🚗", field: "Phone",    value: "98765 43210", hint: "Use OTP tab" },
-  { role: "Manager",        icon: "👤", field: "Email",    value: "manager@intriwa.in", hint: "Use Email tab" },
-  { role: "Mechanic",       icon: "🔧", field: "Phone",    value: "87654 32109", hint: "Use OTP tab" },
+// Demo credentials — set these env vars to your actual Supabase test accounts.
+// All use email + password so no SMS provider is needed for testing.
+const DEMO_CREDS = [
+  {
+    role: "Customer",
+    icon: "🚗",
+    email: process.env.NEXT_PUBLIC_DEMO_CUSTOMER_EMAIL ?? "",
+    password: process.env.NEXT_PUBLIC_DEMO_CUSTOMER_PASS ?? "",
+  },
+  {
+    role: "Manager",
+    icon: "👤",
+    email: process.env.NEXT_PUBLIC_DEMO_MANAGER_EMAIL ?? "",
+    password: process.env.NEXT_PUBLIC_DEMO_MANAGER_PASS ?? "",
+  },
+  {
+    role: "Mechanic",
+    icon: "🔧",
+    email: process.env.NEXT_PUBLIC_DEMO_MECHANIC_EMAIL ?? "",
+    password: process.env.NEXT_PUBLIC_DEMO_MECHANIC_PASS ?? "",
+  },
 ];
 
 function TestCredentials({
-  onFillPhone, onFillEmail, setTab,
+  onFillEmail,
+  setTab,
 }: {
-  onFillPhone: (v: string) => void;
   onFillEmail: (e: string, p: string) => void;
   setTab: (t: LoginTab) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const configured = DEMO_CREDS.filter(c => c.email);
+
   return (
     <div className="mt-4 border-t border-slate-100 pt-3">
       <button onClick={() => setOpen(v => !v)}
@@ -235,31 +252,39 @@ function TestCredentials({
       </button>
       {open && (
         <div className="mt-3 space-y-2">
-          {DEMO_CREDS.map(c => (
-            <div key={c.role} className="flex items-center justify-between px-3 py-2 rounded-lg bg-slate-50 border border-slate-100">
-              <div className="flex items-center gap-2">
-                <span className="text-base">{c.icon}</span>
-                <div>
-                  <p className="text-[11px] font-semibold text-slate-700">{c.role}</p>
-                  <p className="text-[10px] text-slate-400">{c.field}: <span className="font-mono text-slate-600">{c.value}</span></p>
-                </div>
-              </div>
-              <button
-                onClick={() => {
-                  if (c.field === "Phone") {
-                    setTab("phone");
-                    onFillPhone(c.value.replace(/\s/g, ""));
-                  } else {
-                    setTab("email");
-                    onFillEmail(c.value, "demo1234");
-                  }
-                }}
-                className="text-[10px] font-semibold text-brand-coral-500 hover:underline shrink-0">
-                Fill →
-              </button>
+          {configured.length === 0 ? (
+            <div className="px-3 py-3 rounded-lg bg-amber-50 border border-amber-100 text-[11px] text-amber-700 leading-relaxed">
+              Add these to <span className="font-mono">.env.local</span> to enable demo login:<br />
+              <span className="font-mono text-[10px] block mt-1 text-amber-600">
+                NEXT_PUBLIC_DEMO_CUSTOMER_EMAIL<br />
+                NEXT_PUBLIC_DEMO_CUSTOMER_PASS<br />
+                NEXT_PUBLIC_DEMO_MANAGER_EMAIL<br />
+                NEXT_PUBLIC_DEMO_MANAGER_PASS<br />
+                NEXT_PUBLIC_DEMO_MECHANIC_EMAIL<br />
+                NEXT_PUBLIC_DEMO_MECHANIC_PASS
+              </span>
             </div>
-          ))}
-          <p className="text-[10px] text-slate-400 text-center">OTP: use any valid OTP from your SMS provider</p>
+          ) : (
+            <>
+              {configured.map(c => (
+                <div key={c.role} className="flex items-center justify-between px-3 py-2 rounded-lg bg-slate-50 border border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base">{c.icon}</span>
+                    <div>
+                      <p className="text-[11px] font-semibold text-slate-700">{c.role}</p>
+                      <p className="text-[10px] text-slate-400 font-mono">{c.email}</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => { setTab("email"); onFillEmail(c.email, c.password); }}
+                    className="text-[10px] font-semibold text-brand-coral-500 hover:underline shrink-0">
+                    Fill →
+                  </button>
+                </div>
+              ))}
+              <p className="text-[10px] text-slate-400 text-center">Uses Staff Login tab — no OTP needed</p>
+            </>
+          )}
         </div>
       )}
     </div>
@@ -304,7 +329,6 @@ function LoginCard() {
       )}
 
       <TestCredentials
-        onFillPhone={v => setFillPhone(v)}
         onFillEmail={(e, p) => setFillEmail({ email: e, password: p })}
         setTab={setTab}
       />
