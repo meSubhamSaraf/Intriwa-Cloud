@@ -1,13 +1,15 @@
 // POST /api/webhooks/msgkart
-// MsgKart calls this when a customer replies to a WhatsApp message.
-// Saves the message to WhatsAppMessage for the chat UI, and also
-// logs it to the SR timeline if there's an active SR for this customer.
+// MsgKart calls this on every inbound WhatsApp message.
+// 1. Logs message to WhatsAppMessage table + SR timeline (existing)
+// 2. Passes message to the chatbot to drive the conversation flow (new)
 
 import { NextResponse, type NextRequest } from "next/server";
 import { MsgKartPlugin } from "@/lib/plugins/whatsapp/msgkart";
+import { WhatsAppChatbot } from "@/lib/whatsapp/chatbot";
 import { prisma } from "@/lib/connectors/prisma";
 
 const msgkart = new MsgKartPlugin();
+const chatbot = new WhatsAppChatbot();
 
 export async function POST(req: NextRequest) {
   const rawBody = await req.text();
@@ -24,6 +26,7 @@ export async function POST(req: NextRequest) {
 
   if (!from || !text) return NextResponse.json({ received: true });
 
+  // Log inbound message + SR timeline update (fire-and-forget, existing logic)
   const customer = await prisma.customer.findFirst({
     where: { phone: { contains: from.slice(-10) } },
     include: {
@@ -36,7 +39,6 @@ export async function POST(req: NextRequest) {
   });
 
   if (customer) {
-    // Save to WhatsAppMessage chat history
     await prisma.whatsAppMessage.create({
       data: {
         garageId: customer.garageId,
@@ -49,7 +51,6 @@ export async function POST(req: NextRequest) {
       },
     }).catch(() => {});
 
-    // Also log to active SR timeline if one exists
     const srId = customer.serviceRequests?.[0]?.id;
     if (srId) {
       await prisma.timelineEvent.create({
@@ -58,11 +59,16 @@ export async function POST(req: NextRequest) {
           type: "NOTE",
           actorName: customer.name,
           body: `WhatsApp: "${text}"`,
-          metadata: { from, channel: "whatsapp" },
+          metadata: { from, channel: "whatsapp" } as object,
         },
       }).catch(() => {});
     }
   }
+
+  // Drive chatbot conversation (non-blocking — MsgKart expects quick 200)
+  chatbot.handle(from, text).catch((err) => {
+    console.error("[chatbot] unhandled error", err);
+  });
 
   return NextResponse.json({ received: true });
 }

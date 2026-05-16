@@ -843,6 +843,22 @@ model WhatsAppMessage {
   @@index([garageId])
 }
 
+// Tracks WhatsApp conversation state per customer phone number.
+// Sessions expire after 30 minutes of inactivity.
+model WhatsAppSession {
+  id        String   @id @default(cuid())
+  phone     String   // E.164 digits only, e.g. "919876543210"
+  garageId  String
+  state     String   @default("main_menu")
+  context   Json     @default("{}")
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([phone, garageId])
+  @@index([expiresAt])
+}
+
 // ─── Service Packages ────────────────────────────────────────────────────────
 
 model ServicePackage {
