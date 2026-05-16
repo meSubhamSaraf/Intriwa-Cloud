@@ -12,7 +12,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
-const PUBLIC_ROUTES = ["/login", "/api/auth/callback", "/auth/reset-password", "/api/webhooks"];
+const PUBLIC_ROUTES = ["/login", "/api/auth/callback", "/auth/reset-password", "/api/webhooks", "/portal"];
 
 function isPublic(pathname: string) {
   return PUBLIC_ROUTES.some((p) => pathname.startsWith(p));
