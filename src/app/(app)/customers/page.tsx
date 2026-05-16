@@ -11,7 +11,10 @@ type Vehicle = { id: string; make: string; model: string; regNumber: string | nu
 type Customer = {
   id: string; name: string; phone: string; email: string | null;
   address: string | null; createdAt: string; vehicles: Vehicle[];
+  lastServiceDate: string | null; isActive: boolean;
 };
+
+type ActivityFilter = "all" | "active" | "inactive";
 
 const BANGALORE_AREAS = ["Whitefield","Marathahalli","Indiranagar","Koramangala","JP Nagar","HSR Layout","Electronic City","Kanakapura Road","Subramanyapura","Bannerghatta Road","Hebbal","Malleswaram","MG Road","Devanahalli","Yelahanka","Sarjapur Road","Old Airport Road","Lavelle Road"];
 const AREA_KEYS = BANGALORE_AREAS.map((a) => a.toLowerCase());
@@ -66,6 +69,7 @@ export default function CustomersPage() {
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [areaFilters, setAreaFilters] = useState<string[]>([]);
+  const [activityFilter, setActivityFilter] = useState<ActivityFilter>("all");
 
   useEffect(() => {
     fetch("/api/customers")
@@ -79,12 +83,18 @@ export default function CustomersPage() {
       c.name.toLowerCase().includes(query.toLowerCase()) ||
       c.phone.includes(query);
     const matchArea = areaFilters.length === 0 || areaFilters.includes(extractNeighbourhood(c.address));
-    return matchQuery && matchArea;
+    const matchActivity =
+      activityFilter === "all" ||
+      (activityFilter === "active" && c.isActive) ||
+      (activityFilter === "inactive" && !c.isActive);
+    return matchQuery && matchArea && matchActivity;
   });
 
   if (loading) return <div className="p-8 text-slate-400 text-sm">Loading customers…</div>;
 
-  const hasFilters = !!query || areaFilters.length > 0;
+  const activeCount   = customers.filter((c) => c.isActive).length;
+  const inactiveCount = customers.length - activeCount;
+  const hasFilters = !!query || areaFilters.length > 0 || activityFilter !== "all";
 
   return (
     <div className="p-3 md:p-4">
@@ -107,6 +117,30 @@ export default function CustomersPage() {
           <input type="text" placeholder="Search name or phone…" value={query} onChange={(e) => setQuery(e.target.value)}
             className="h-9 w-full sm:w-64 pl-8 pr-3 text-sm bg-white border border-slate-200 rounded-md text-slate-600 placeholder:text-slate-400 focus:outline-none focus:border-brand-navy-400 transition-colors" />
         </div>
+
+        {/* Activity filter */}
+        <div className="flex rounded-md border border-slate-200 overflow-hidden bg-white shrink-0">
+          {([
+            { key: "all",      label: "All",              count: customers.length },
+            { key: "active",   label: "Active",           count: activeCount },
+            { key: "inactive", label: "Inactive",         count: inactiveCount },
+          ] as { key: ActivityFilter; label: string; count: number }[]).map(({ key, label, count }) => (
+            <button key={key} onClick={() => setActivityFilter(key)}
+              className={`h-8 px-3 text-xs font-medium transition-colors whitespace-nowrap ${
+                activityFilter === key
+                  ? key === "active"   ? "bg-green-600 text-white"
+                  : key === "inactive" ? "bg-slate-600 text-white"
+                  : "bg-brand-navy-800 text-white"
+                  : "text-slate-600 hover:bg-slate-50"
+              }`}>
+              {label}
+              <span className={`ml-1 tabular-nums ${activityFilter === key ? "opacity-80" : "text-slate-400"}`}>
+                {count}
+              </span>
+            </button>
+          ))}
+        </div>
+
         <AreaMultiFilter selected={areaFilters} onChange={setAreaFilters} />
       </div>
 
@@ -125,10 +159,18 @@ export default function CustomersPage() {
                 className="flex items-center gap-3 px-4 py-3.5 active:bg-slate-50 cursor-pointer">
                 <UserAvatar name={c.name} size="sm" />
                 <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-slate-800 leading-tight">{c.name}</p>
+                  <div className="flex items-center gap-1.5">
+                    <p className="font-semibold text-slate-800 leading-tight">{c.name}</p>
+                    <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full ${c.isActive ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-500"}`}>
+                      {c.isActive ? "Active" : "Inactive"}
+                    </span>
+                  </div>
                   <p className="text-[11px] text-slate-400 tabular-nums">{c.phone}</p>
                   <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                     <span className="text-[10px] text-slate-400">{c.vehicles.length} vehicle{c.vehicles.length !== 1 ? "s" : ""}</span>
+                    {c.lastServiceDate && (
+                      <span className="text-[10px] text-slate-400">Last: {fmtDate(c.lastServiceDate)}</span>
+                    )}
                     {extractNeighbourhood(c.address) && (
                       <span className="inline-flex items-center gap-0.5 text-[10px] text-slate-500">
                         <MapPin className="w-2.5 h-2.5" />{extractNeighbourhood(c.address)}
@@ -148,7 +190,7 @@ export default function CustomersPage() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50">
-              {["Customer", "Vehicles", "Area", "Email", "Since", ""].map((h) => (
+              {["Customer", "Status", "Vehicles", "Area", "Last Service", "Since", ""].map((h) => (
                 <th key={h} className="px-3 py-2.5 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
               ))}
             </tr>
@@ -166,6 +208,11 @@ export default function CustomersPage() {
                     </div>
                   </div>
                 </td>
+                <td className="px-3 py-2.5">
+                  <span className={`inline-flex items-center text-[10px] font-semibold px-2 py-0.5 rounded-full ${c.isActive ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-500"}`}>
+                    {c.isActive ? "Active" : "Inactive"}
+                  </span>
+                </td>
                 <td className="px-3 py-2.5 text-[12px] text-slate-600">
                   {c.vehicles.length} vehicle{c.vehicles.length !== 1 ? "s" : ""}
                 </td>
@@ -176,7 +223,9 @@ export default function CustomersPage() {
                     </span>
                   ) : <span className="text-[11px] text-slate-400">—</span>}
                 </td>
-                <td className="px-3 py-2.5 text-[12px] text-slate-500">{c.email ?? "—"}</td>
+                <td className="px-3 py-2.5 text-[12px] text-slate-500 whitespace-nowrap tabular-nums">
+                  {c.lastServiceDate ? fmtDate(c.lastServiceDate) : <span className="text-slate-300">—</span>}
+                </td>
                 <td className="px-3 py-2.5 text-[12px] text-slate-500 whitespace-nowrap tabular-nums">
                   {fmtDate(c.createdAt)}
                 </td>
