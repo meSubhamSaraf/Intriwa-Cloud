@@ -70,7 +70,34 @@ export const GET = withAuth(async (req, { garageId }) => {
     select: { estimatedCost: true, serviceRequestId: true },
   });
   const aftermarketCost = approvedAddons.reduce((sum, a) => sum + Number(a.estimatedCost), 0);
-  // Aftermarket revenue is already captured in paid invoices (total revenue above)
+
+  // ── 2c. Package inventory items (SRServicePackageItem with inventoryItemId) ─
+  const packageItems = await prisma.sRServicePackageItem.findMany({
+    where: {
+      inventoryItemId: { not: null },
+      srPackage: {
+        sr: {
+          garageId,
+          status: "CLOSED",
+          closedAt: { gte: periodStart, lte: periodEnd },
+        },
+      },
+    },
+    select: { inventoryItemId: true, quantity: true, mrpPrice: true },
+  });
+  let packagePartsCost = 0;
+  if (packageItems.length > 0) {
+    const invIds = [...new Set(packageItems.map((p) => p.inventoryItemId!))];
+    const invItems = await prisma.inventoryItem.findMany({
+      where: { id: { in: invIds } },
+      select: { id: true, costPrice: true },
+    });
+    const costById = new Map(invItems.map((i) => [i.id, Number(i.costPrice ?? 0)]));
+    packagePartsCost = packageItems.reduce((sum, p) => {
+      const cost = costById.get(p.inventoryItemId!) ?? Number(p.mrpPrice);
+      return sum + cost * p.quantity;
+    }, 0);
+  }
 
   // ── 3. Fuel allowances: SRs closed in period ─────────────────────────────
   const srsFuelAgg = await prisma.serviceRequest.aggregate({
@@ -109,16 +136,17 @@ export const GET = withAuth(async (req, { garageId }) => {
   const overtime = Number(incentiveAgg._sum.incentiveAmount ?? 0);
 
   const jobCosts = {
-    parts: partsCost + aftermarketCost,
+    parts: partsCost + aftermarketCost + packagePartsCost,
     partsCogs: partsCost,
     aftermarketCost,
+    packagePartsCost,
     partsRevenue,
     partsMargin: partsRevenue - partsCost,
     fuelAllowances,
     variablePayouts,
     overtime,
   };
-  const jobCostsTotal = partsCost + fuelAllowances + variablePayouts + overtime;
+  const jobCostsTotal = partsCost + packagePartsCost + aftermarketCost + fuelAllowances + variablePayouts + overtime;
   const grossProfit = revenue - jobCostsTotal;
 
   // ── 6. Operating expenses ─────────────────────────────────────────────────

@@ -155,16 +155,11 @@ export class ServiceRequestService {
     const count = await prisma.invoice.count();
     const invoiceNumber = `INV-${year}-${String(count + 1).padStart(4, "0")}`;
 
-    function parseNotes(notes: string | null): { sellingPrice?: number; quantity?: number } {
-      try { return JSON.parse(notes ?? "{}"); } catch { return {}; }
-    }
-
     const labourTotal = sr.items.reduce((s, i) => s + Number(i.total), 0);
     const partsTotal = sr.inventoryUsages.reduce((s, u) => s + Number(u.total), 0);
     const addonTotal = sr.addOns.reduce((s, a) => {
-      const { sellingPrice, quantity = 1 } = parseNotes(a.notes);
-      const price = sellingPrice ?? Number(a.estimatedCost);
-      return s + price * quantity;
+      const price = Number(a.sellingPrice ?? a.estimatedCost);
+      return s + price * a.quantity;
     }, 0);
     const subtotal = labourTotal + partsTotal + addonTotal;
     const discountAmount = Math.max(0, Math.min(opts?.discountAmount ?? 0, subtotal));
@@ -193,13 +188,12 @@ export class ServiceRequestService {
                 total: Number(u.total),
               })),
               ...sr.addOns.map((a) => {
-                const { sellingPrice, quantity = 1 } = parseNotes(a.notes);
-                const price = sellingPrice ?? Number(a.estimatedCost);
+                const price = Number(a.sellingPrice ?? a.estimatedCost);
                 return {
                   description: a.description,
-                  quantity,
+                  quantity: a.quantity,
                   unitPrice: price,
-                  total: price * quantity,
+                  total: price * a.quantity,
                 };
               }),
             ],

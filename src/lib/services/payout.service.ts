@@ -50,7 +50,6 @@ export class PayoutService {
       } else if (mechanic.payoutConfigType === "PERCENT_OF_ITEM") {
         amount = Number(item.total) * Number(mechanic.payoutRate ?? 0);
       } else if (mechanic.payoutConfigType === "SALARY") {
-        // Salary mechanics: base is their salary; items don't add individually
         amount = 0;
       }
 
@@ -62,10 +61,39 @@ export class PayoutService {
       };
     });
 
+    // ── Package earnings: SRs where a package was applied ────────────────────
+    const packageSRs = await prisma.sRServicePackage.findMany({
+      where: {
+        sr: {
+          status: "CLOSED",
+          closedAt: { gte: periodStart, lte: periodEnd },
+          mechanicId: mechanicId,
+        },
+      },
+      include: { sr: { select: { srNumber: true, id: true } } },
+    });
+
+    const packagePayoutItems = packageSRs.map((pkg) => {
+      let amount = 0;
+      if (mechanic.payoutConfigType === "FIXED_PER_ITEM") {
+        amount = Number(mechanic.payoutRate ?? 0);
+      } else if (mechanic.payoutConfigType === "PERCENT_OF_ITEM") {
+        amount = Number(pkg.packagePrice) * Number(mechanic.payoutRate ?? 0);
+      }
+      return {
+        serviceRequestId: pkg.sr.id,
+        serviceItemId: null as string | null,
+        description: `${pkg.packageName} (SR ${pkg.sr.srNumber})`,
+        amount,
+      };
+    });
+
+    const allPayoutItems = [...payoutItems, ...packagePayoutItems];
+
     const baseAmount =
       mechanic.payoutConfigType === "SALARY"
         ? Number(mechanic.salaryAmount ?? 0)
-        : payoutItems.reduce((s, i) => s + i.amount, 0);
+        : allPayoutItems.reduce((s, i) => s + i.amount, 0);
 
     // ── Incentive rules ───────────────────────────────────────────────────────
     const rules = await prisma.incentiveRule.findMany({
@@ -161,7 +189,7 @@ export class PayoutService {
 
     const totalAmount = baseAmount + incentiveAmount + fuelAllowanceTotal;
 
-    return { mechanic, payoutItems, incentiveRows, baseAmount, incentiveAmount, fuelAllowanceTotal, totalAmount };
+    return { mechanic, payoutItems: allPayoutItems, incentiveRows, baseAmount, incentiveAmount, fuelAllowanceTotal, totalAmount };
   }
 
   // Save the calculated payout as a PENDING record

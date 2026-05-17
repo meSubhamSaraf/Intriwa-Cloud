@@ -29,6 +29,8 @@ type ApiSR = {
   srNumber: string;
   status: string;
   scheduledAt: string | null;
+  openedAt: string | null;
+  closedAt: string | null;
   complaint: string | null;
   locationType: string;
   estimatedAmount?: number;
@@ -164,9 +166,14 @@ function buildWeekJobsFromApi(srs: ApiSR[], weekDays: Date[]): JobBlock[] {
     .filter((sr) => sr.scheduledAt && weekDatesIso.has(sr.scheduledAt.slice(0, 10)))
     .map((sr) => {
       const dt = sr.scheduledAt!;
+      let durationMinutes = 60;
+      if (sr.closedAt && sr.openedAt) {
+        const mins = Math.round((new Date(sr.closedAt).getTime() - new Date(sr.openedAt).getTime()) / 60000);
+        if (mins > 0) durationMinutes = Math.min(mins, 480);
+      }
       return {
         id: sr.id, srId: sr.id, date: dt.slice(0, 10), startTime: dt.slice(11, 16),
-        durationMinutes: 60,
+        durationMinutes,
         customerName: sr.srNumber, serviceLabel: sr.complaint ?? "Service",
         status: sr.status, locationType: sr.locationType,
         amount: sr.finalAmount ?? sr.estimatedAmount ?? 0,
