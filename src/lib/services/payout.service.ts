@@ -197,15 +197,18 @@ export class PayoutService {
   }
 
   async markPaid(payoutId: string, paymentMethod: string, cashfreeTransferId?: string) {
-    return prisma.mechanicPayout.update({
-      where: { id: payoutId },
-      data: {
-        status: "PAID",
-        paymentMethod: paymentMethod as never,
-        cashfreeTransferId,
-        paidAt: new Date(),
-      },
-    });
+    const now = new Date();
+    const [, payout] = await prisma.$transaction([
+      prisma.mechanicPayoutItem.updateMany({
+        where: { payoutId, isPaid: false },
+        data: { isPaid: true, paidAt: now },
+      }),
+      prisma.mechanicPayout.update({
+        where: { id: payoutId },
+        data: { status: "PAID", paymentMethod: paymentMethod as never, cashfreeTransferId, paidAt: now },
+      }),
+    ]);
+    return payout;
   }
 
   async listByGarage(garageId: string, filters?: { mechanicId?: string; status?: import("@/generated/prisma/client").PayoutStatus }) {

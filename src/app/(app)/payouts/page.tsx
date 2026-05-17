@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import {
   DollarSign, CheckCircle, Clock, XCircle, Plus, Upload,
-  Users, ShoppingCart, X, Paperclip,
+  Users, ShoppingCart, X, Paperclip, Check,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -20,7 +20,7 @@ type EmployeePayout = {
   totalAmount: number;
   status: "PENDING" | "APPROVED" | "PAID" | "CANCELLED";
   paidAt?: string;
-  items: { id: string; description: string; amount: number }[];
+  items: { id: string; description: string; amount: number; isPaid: boolean; paidAt?: string | null }[];
   incentives: { id: string; ruleName: string; bonusAmount: number }[];
 };
 
@@ -105,9 +105,27 @@ function EmployeePayoutsTab() {
     });
     if (res.ok) {
       const updated = await res.json();
+      // mark_paid also settles all items — reflect that in local state
+      const itemPatch = action === "mark_paid"
+        ? { items: selected?.items.map(i => ({ ...i, isPaid: true })) }
+        : {};
       setPayouts(prev => prev.map(p => p.id === payoutId ? { ...p, ...updated } : p));
-      setSelected(prev => prev?.id === payoutId ? { ...prev, ...updated } : prev);
+      setSelected(prev => prev?.id === payoutId ? { ...prev, ...updated, ...itemPatch } : prev);
       toast.success(action === "approve" ? "Payout approved" : "Marked as paid");
+    }
+  }
+
+  async function toggleItem(payoutId: string, itemId: string, isPaid: boolean) {
+    const res = await fetch(`/api/payouts/${payoutId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "toggle_item", itemId, isPaid }),
+    });
+    if (res.ok) {
+      setSelected(prev => {
+        if (!prev || prev.id !== payoutId) return prev;
+        return { ...prev, items: prev.items.map(i => i.id === itemId ? { ...i, isPaid, paidAt: isPaid ? new Date().toISOString() : null } : i) };
+      });
     }
   }
 
@@ -225,12 +243,32 @@ function EmployeePayoutsTab() {
           </div>
           {selected.items.length > 0 && (
             <div className="px-5 py-4 border-b border-slate-100">
-              <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-3">Job items</p>
-              <div className="space-y-1.5">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Job items</p>
+                <span className="text-[10px] text-slate-400">
+                  {selected.items.filter(i => i.isPaid).length}/{selected.items.length} settled
+                </span>
+              </div>
+              <div className="space-y-2">
                 {selected.items.map(item => (
-                  <div key={item.id} className="flex justify-between text-xs">
-                    <span className="text-slate-600 truncate mr-4">{item.description}</span>
-                    <span className="text-slate-700 shrink-0">{fmt(item.amount)}</span>
+                  <div key={item.id} className="flex items-center gap-2.5">
+                    <button
+                      onClick={() => toggleItem(selected.id, item.id, !item.isPaid)}
+                      title={item.isPaid ? "Mark unpaid" : "Mark paid"}
+                      className={`shrink-0 w-5 h-5 rounded border flex items-center justify-center transition-colors ${
+                        item.isPaid
+                          ? "bg-green-600 border-green-600 text-white"
+                          : "border-slate-300 hover:border-green-400"
+                      }`}
+                    >
+                      {item.isPaid && <Check className="w-3 h-3" />}
+                    </button>
+                    <span className={`flex-1 text-xs truncate ${item.isPaid ? "text-slate-400 line-through" : "text-slate-600"}`}>
+                      {item.description}
+                    </span>
+                    <span className={`text-xs shrink-0 font-medium ${item.isPaid ? "text-slate-400" : "text-slate-700"}`}>
+                      {fmt(item.amount)}
+                    </span>
                   </div>
                 ))}
               </div>

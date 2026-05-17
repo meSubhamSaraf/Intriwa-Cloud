@@ -22,7 +22,8 @@ export const GET = withAuthParams<{ id: string }>(async (_req, _ctx, { id }) => 
 });
 
 export const PATCH = withAuthParams<{ id: string }>(async (req, { profile }, { id }) => {
-  const { action, paymentMethod, cashfreeTransferId } = await req.json();
+  const body = await req.json();
+  const { action } = body;
 
   if (action === "approve") {
     const updated = await payoutService.approvePayout(id, profile.id);
@@ -30,7 +31,16 @@ export const PATCH = withAuthParams<{ id: string }>(async (req, { profile }, { i
   }
 
   if (action === "mark_paid") {
-    const updated = await payoutService.markPaid(id, paymentMethod, cashfreeTransferId);
+    const updated = await payoutService.markPaid(id, body.paymentMethod, body.cashfreeTransferId);
+    return NextResponse.json(updated);
+  }
+
+  if (action === "toggle_item") {
+    const { prisma } = await import("@/lib/connectors/prisma");
+    const updated = await prisma.mechanicPayoutItem.update({
+      where: { id: body.itemId },
+      data: { isPaid: body.isPaid, paidAt: body.isPaid ? new Date() : null },
+    });
     return NextResponse.json(updated);
   }
 

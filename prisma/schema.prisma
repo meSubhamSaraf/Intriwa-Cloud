@@ -475,12 +475,14 @@ model MechanicPayout {
 
 // Line items within a payout — one row per SR item the mechanic handled
 model MechanicPayoutItem {
-  id               String  @id @default(cuid())
+  id               String    @id @default(cuid())
   payoutId         String
   serviceRequestId String?
   serviceItemId    String?
   description      String
-  amount           Decimal @db.Decimal(10, 2)
+  amount           Decimal   @db.Decimal(10, 2)
+  isPaid           Boolean   @default(false)
+  paidAt           DateTime?
 
   payout MechanicPayout @relation(fields: [payoutId], references: [id])
 }
