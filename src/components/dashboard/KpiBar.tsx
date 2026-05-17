@@ -28,7 +28,7 @@ function KpiCard({ icon: Icon, label, value, sub, href, alert }: KpiCardProps) {
   return (
     <Link
       href={href}
-      className="flex-1 min-w-0 bg-white border border-slate-200 rounded-lg p-3 flex flex-col gap-1 hover:border-brand-navy-300 hover:shadow-sm transition-all group"
+      className="flex-none min-w-[130px] md:flex-1 md:min-w-0 bg-white border border-slate-200 rounded-lg p-3 flex flex-col gap-1 hover:border-brand-navy-300 hover:shadow-sm transition-all group"
     >
       <div className="flex items-center gap-1.5 text-slate-500 group-hover:text-brand-navy-600 transition-colors">
         <Icon className="w-3.5 h-3.5 shrink-0" />
@@ -54,7 +54,7 @@ export function KpiBar() {
   const s = stats;
 
   return (
-    <div className="flex gap-3 mb-4">
+    <div className="flex gap-2 md:gap-3 mb-3 md:mb-4 overflow-x-auto pb-1 md:pb-0 -mx-3 px-3 md:mx-0 md:px-0 scrollbar-hide">
       <KpiCard
         icon={CalendarDays}
         label="Today's Jobs"
@@ -68,13 +68,6 @@ export function KpiBar() {
         value={s?.openLeads ?? "—"}
         sub="active in pipeline"
         href="/leads"
-      />
-      <KpiCard
-        icon={Wrench}
-        label="Active Mechanics"
-        value={s?.activeMechanics ?? "—"}
-        sub="clocked in now"
-        href="/mechanics"
       />
       <KpiCard
         icon={UserCog}
@@ -94,6 +87,13 @@ export function KpiBar() {
         value={s ? "₹" + Math.round(s.revenueThisMonth).toLocaleString("en-IN") : "—"}
         sub="from paid invoices"
         href="/invoices"
+      />
+      <KpiCard
+        icon={Wrench}
+        label="Active Mechanics"
+        value={s?.activeMechanics ?? "—"}
+        sub="clocked in now"
+        href="/mechanics"
       />
       <KpiCard
         icon={Users}

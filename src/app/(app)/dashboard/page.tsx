@@ -67,8 +67,8 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Charts row */}
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-3 md:gap-4 mt-3 md:mt-4">
+      {/* Charts row — desktop only */}
+      <div className="hidden md:grid md:grid-cols-12 gap-4 mt-4">
         <div className="md:col-span-5 bg-white rounded-lg p-4 border border-slate-200" style={{ height: 220 }}>
           <LeadFunnel />
         </div>

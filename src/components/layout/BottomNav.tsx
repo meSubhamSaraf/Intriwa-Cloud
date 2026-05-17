@@ -1,42 +1,53 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { LayoutDashboard, UserPlus, Users, Wrench, MoreHorizontal, Car, Route, Clock } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import {
+  LayoutDashboard, UserPlus, Users, Wrench, MoreHorizontal,
+  Car, Clock, Receipt, UserCog, Settings, LogOut,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
+import { createBrowserConnector } from "@/lib/connectors/supabase-browser";
 
 const PRIMARY_NAV = [
-  { href: "/dashboard", label: "Home", icon: LayoutDashboard },
-  { href: "/leads", label: "Leads", icon: UserPlus },
-  { href: "/customers", label: "Customers", icon: Users },
-  { href: "/services", label: "Services", icon: Wrench },
+  { href: "/dashboard", label: "Home",     icon: LayoutDashboard },
+  { href: "/leads",     label: "Leads",    icon: UserPlus },
+  { href: "/customers", label: "Customers",icon: Users },
+  { href: "/services",  label: "Services", icon: Wrench },
 ];
 
 const MORE_NAV = [
-  { href: "/vehicles", label: "Vehicles", icon: Car },
-  { href: "/followups", label: "Follow-ups", icon: Clock },
-  { href: "/dispatch", label: "Dispatch", icon: Route },
+  { href: "/invoices",  label: "Invoices",  icon: Receipt },
+  { href: "/vehicles",  label: "Vehicles",  icon: Car },
+  { href: "/mechanics", label: "Mechanics", icon: UserCog },
+  { href: "/followups", label: "Follow-ups",icon: Clock },
+  { href: "/settings",  label: "Settings",  icon: Settings },
 ];
 
 export function BottomNav() {
   const pathname = usePathname();
+  const router = useRouter();
   const [moreOpen, setMoreOpen] = useState(false);
 
   const isActive = (href: string) => pathname === href || (pathname.startsWith(href + "/") && href !== "/");
   const moreActive = MORE_NAV.some((n) => isActive(n.href));
 
+  async function handleLogout() {
+    setMoreOpen(false);
+    const supabase = createBrowserConnector();
+    await supabase.auth.signOut();
+    router.push("/");
+  }
+
   return (
     <>
       {moreOpen && (
-        <div
-          className="fixed inset-0 z-30"
-          onClick={() => setMoreOpen(false)}
-        />
+        <div className="fixed inset-0 z-30" onClick={() => setMoreOpen(false)} />
       )}
 
       {moreOpen && (
-        <div className="fixed bottom-16 right-2 z-40 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden">
+        <div className="fixed bottom-16 right-2 z-40 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden min-w-[180px]">
           {MORE_NAV.map(({ href, label, icon: Icon }) => (
             <Link
               key={href}
@@ -53,6 +64,15 @@ export function BottomNav() {
               {label}
             </Link>
           ))}
+          <div className="border-t border-slate-100">
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-3 px-4 py-3 text-sm text-red-600 hover:bg-red-50 transition-colors w-full text-left"
+            >
+              <LogOut className="w-4 h-4" />
+              Sign out
+            </button>
+          </div>
         </div>
       )}
 
