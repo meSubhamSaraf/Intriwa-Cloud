@@ -8,7 +8,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { withAuth } from "@/app/api/_helpers/auth";
 import { prisma } from "@/lib/connectors/prisma";
-import { Prisma } from "@/generated/prisma";
+import { Prisma } from "@/generated/prisma/client";
 
 export const GET = withAuth(async (_req, { garageId }) => {
   const runs = await prisma.qATestRun.findMany({
