@@ -40,7 +40,7 @@ test.describe("Manager – Add Mechanic", () => {
     // Payout rate input
     await page.getByPlaceholder(/e\.g\. 40/i).fill("35");
 
-    await page.getByRole("button", { name: /add mechanic/i }).click();
+    await page.locator("form").getByRole("button", { name: /add mechanic/i }).click();
     // Should show success toast or credential display
     await page.waitForTimeout(2000);
     // Either credentials panel appears or mechanic was added (modal closes)
@@ -68,7 +68,7 @@ test.describe("Manager – Add Mechanic", () => {
     await expect(page.getByPlaceholder(/15000/i)).toBeVisible({ timeout: 3000 });
     await page.getByPlaceholder(/15000/i).fill("18000");
 
-    await page.getByRole("button", { name: /add mechanic/i }).click();
+    await page.locator("form").getByRole("button", { name: /add mechanic/i }).click();
     await page.waitForTimeout(2000);
     await expect(page).not.toHaveURL(/error/);
   });
@@ -90,7 +90,7 @@ test.describe("Manager – Add Mechanic", () => {
     await expect(page.getByPlaceholder(/e\.g\. 200/i)).toBeVisible({ timeout: 3000 });
     await page.getByPlaceholder(/e\.g\. 200/i).fill("250");
 
-    await page.getByRole("button", { name: /add mechanic/i }).click();
+    await page.locator("form").getByRole("button", { name: /add mechanic/i }).click();
     await page.waitForTimeout(2000);
     await expect(page).not.toHaveURL(/error/);
   });

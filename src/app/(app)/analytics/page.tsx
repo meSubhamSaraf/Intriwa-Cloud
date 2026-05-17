@@ -75,7 +75,9 @@ function todayISO() {
 
 function firstOfMonthISO() {
   const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  return `${y}-${m}-01`;
 }
 
 // ── KPI Card ──────────────────────────────────────────────────────

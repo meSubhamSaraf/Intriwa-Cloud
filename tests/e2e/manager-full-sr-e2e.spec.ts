@@ -60,6 +60,36 @@ async function clickContinue(page: Page) {
   await page.waitForTimeout(600);
 }
 
+/** Type one char in the customer search box and click the first result. Returns false if no customers found. */
+async function selectFirstCustomer(page: Page): Promise<boolean> {
+  const searchInput = page.getByPlaceholder(/search by name or phone/i);
+  if (!(await searchInput.isVisible({ timeout: 8000 }).catch(() => false))) return false;
+  await searchInput.fill("a");
+  await page.waitForTimeout(600); // debounce
+  const firstResult = page.locator("button").filter({ hasText: /\d{7,}/ }).first();
+  if (!(await firstResult.isVisible({ timeout: 3000 }).catch(() => false))) {
+    // try a different query
+    await searchInput.fill("e");
+    await page.waitForTimeout(600);
+  }
+  const result = page.locator("button").filter({ hasText: /\d{7,}/ }).first();
+  if (!(await result.isVisible({ timeout: 2000 }).catch(() => false))) return false;
+  await result.click();
+  await page.waitForTimeout(400);
+  return true;
+}
+
+/** Click the first available vehicle button. Returns false if none visible. */
+async function selectFirstVehicle(page: Page): Promise<boolean> {
+  const vehicleBtn = page.locator("button").filter({ hasText: /petrol|diesel|cng|electric|hybrid/i }).first();
+  if (await vehicleBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+    await vehicleBtn.click();
+    await page.waitForTimeout(400);
+    return true;
+  }
+  return false;
+}
+
 async function uploadPhoto(page: Page, label = "test-photo.jpg") {
   const fileInput = page.locator("input[type='file']").first();
   if (await fileInput.isVisible({ timeout: 3000 }).catch(() => false)) {
@@ -88,70 +118,34 @@ test.describe.serial("Full SR Lifecycle E2E", () => {
   test("1 · Manager: SR wizard – Customer step", async ({ page }) => {
     await page.goto("/services/new");
     await expect(page).toHaveURL(/services\/new/);
-    // Step heading: "Customer"
     await expect(page.getByRole("heading", { name: /customer/i })).toBeVisible({ timeout: 10000 });
 
-    // Pick the first available customer row
-    const customerRow = page.locator("tr.cursor-pointer, [class*='cursor-pointer']").first();
-    if (!(await customerRow.isVisible({ timeout: 5000 }))) {
-      test.skip(true, "No customers in DB — cannot proceed");
-      return;
-    }
-    await customerRow.click();
-    await page.waitForTimeout(500);
+    const found = await selectFirstCustomer(page);
+    if (!found) { test.skip(true, "No customers in DB — cannot proceed"); return; }
   });
 
   test("2 · Manager: SR wizard – Vehicle step", async ({ page }) => {
     await page.goto("/services/new");
-    await page.locator("tr.cursor-pointer, [class*='cursor-pointer']").first().click();
-    await page.waitForTimeout(400);
+    if (!(await selectFirstCustomer(page))) { test.skip(true, "No customers"); return; }
     await clickContinue(page);
 
-    // Step heading: "Vehicle"
     await expect(page.getByRole("heading", { name: /vehicle/i })).toBeVisible({ timeout: 8000 });
-
-    // Pick existing vehicle or fill new vehicle form
-    const vehicleRow = page.locator("tr.cursor-pointer, [class*='cursor-pointer']").first();
-    if (await vehicleRow.isVisible({ timeout: 3000 })) {
-      await vehicleRow.click();
-    } else {
-      // New vehicle mini-form
-      const makeSelect = page.locator("select").first();
-      if (await makeSelect.isVisible({ timeout: 2000 })) {
-        await makeSelect.selectOption({ index: 1 });
-        const modelInput = page.locator("input[placeholder*='model' i], input[placeholder*='Model']").first();
-        if (await modelInput.isVisible({ timeout: 1000 })) await modelInput.fill("Test Model");
-        await page.getByRole("button", { name: /confirm vehicle/i }).click();
-        await page.waitForTimeout(500);
-      }
-    }
+    await selectFirstVehicle(page);
     await page.waitForTimeout(400);
   });
 
   test("3 · Manager: SR wizard – Issue step", async ({ page }) => {
     await page.goto("/services/new");
-    // Navigate to Issue step (step 3) via previous steps
-    const customerRow = page.locator("tr.cursor-pointer, [class*='cursor-pointer']").first();
-    if (!(await customerRow.isVisible({ timeout: 5000 }))) {
-      test.skip(true, "No customers — skipping");
-      return;
-    }
-    await customerRow.click();
-    await page.waitForTimeout(400);
+    if (!(await selectFirstCustomer(page))) { test.skip(true, "No customers — skipping"); return; }
     await clickContinue(page); // → Vehicle
-
-    const vehicleRow = page.locator("tr.cursor-pointer, [class*='cursor-pointer']").first();
-    if (await vehicleRow.isVisible({ timeout: 3000 })) await vehicleRow.click();
-    await page.waitForTimeout(400);
+    await selectFirstVehicle(page);
     await clickContinue(page); // → Issue
 
     await expect(page.getByRole("heading", { name: /issue/i })).toBeVisible({ timeout: 8000 });
 
-    // Fill problem description
     const descArea = page.getByPlaceholder(/problem|customer's own words/i);
     await descArea.fill(`Engine oil change needed + brake check. ${RUN_TAG}`);
 
-    // Select service type: OPC (garage) for simplicity (no km modal later)
     const opcOption = page.locator("label, button, div").filter({ hasText: /OPC|garage/i }).first();
     if (await opcOption.isVisible({ timeout: 2000 })) await opcOption.click();
     await page.waitForTimeout(300);
@@ -159,20 +153,10 @@ test.describe.serial("Full SR Lifecycle E2E", () => {
 
   test("4 · Manager: SR wizard – Services step (package + inventory + custom item)", async ({ page }) => {
     await page.goto("/services/new");
-    const customerRow = page.locator("tr.cursor-pointer, [class*='cursor-pointer']").first();
-    if (!(await customerRow.isVisible({ timeout: 5000 }))) {
-      test.skip(true, "No customers");
-      return;
-    }
-    // Quick-navigate: Customer → Vehicle → Issue → Services
-    await customerRow.click();
-    await page.waitForTimeout(400);
+    if (!(await selectFirstCustomer(page))) { test.skip(true, "No customers"); return; }
     await clickContinue(page);
-    const vehicleRow = page.locator("tr.cursor-pointer, [class*='cursor-pointer']").first();
-    if (await vehicleRow.isVisible({ timeout: 3000 })) await vehicleRow.click();
-    await page.waitForTimeout(400);
+    await selectFirstVehicle(page);
     await clickContinue(page);
-    // Issue step — fill description
     await page.getByPlaceholder(/problem|customer's own words/i).fill(`Oil change. ${RUN_TAG}`);
     await clickContinue(page); // → Services
 
@@ -226,20 +210,9 @@ test.describe.serial("Full SR Lifecycle E2E", () => {
 
   test("5 · Manager: SR wizard – Schedule + Mechanic + Submit", async ({ page }) => {
     await page.goto("/services/new");
-    const customerRow = page.locator("tr.cursor-pointer, [class*='cursor-pointer']").first();
-    if (!(await customerRow.isVisible({ timeout: 5000 }))) {
-      test.skip(true, "No customers");
-      return;
-    }
-
-    // Navigate through all steps
-    await customerRow.click();
-    await page.waitForTimeout(400);
+    if (!(await selectFirstCustomer(page))) { test.skip(true, "No customers"); return; }
     await clickContinue(page); // → Vehicle
-
-    const vehicleRow = page.locator("tr.cursor-pointer, [class*='cursor-pointer']").first();
-    if (await vehicleRow.isVisible({ timeout: 3000 })) await vehicleRow.click();
-    await page.waitForTimeout(400);
+    await selectFirstVehicle(page);
     await clickContinue(page); // → Issue
 
     await page.getByPlaceholder(/problem|customer's own words/i).fill(`Full service test. ${RUN_TAG}`);

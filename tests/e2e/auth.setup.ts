@@ -12,11 +12,12 @@ const MECHANIC_EMAIL = process.env.TEST_MECHANIC_EMAIL;
 const MECHANIC_PASSWORD = process.env.TEST_MECHANIC_PASSWORD;
 
 async function loginWithEmail(page: any, email: string, password: string) {
-  await page.goto("/login");
-  // Email tab is active by default — fill the fields
-  await page.getByPlaceholder("you@intriwa.in").fill(email);
-  await page.getByPlaceholder("Enter password").fill(password);
-  await page.getByRole("button", { name: "Sign in" }).click();
+  await page.goto("/");
+  // Click the "Login" tab (email/password tab) — default is Phone OTP
+  await page.getByRole("button", { name: /^login$/i }).click();
+  await page.getByPlaceholder("Email address").fill(email);
+  await page.getByPlaceholder("Password").fill(password);
+  await page.getByRole("button", { name: /^sign in$/i }).click();
 }
 
 setup("authenticate manager", async ({ page }) => {

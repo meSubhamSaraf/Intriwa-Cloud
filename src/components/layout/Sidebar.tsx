@@ -27,6 +27,7 @@ import {
   Boxes,
   Wallet,
   TrendingUp,
+  FlaskConical,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -55,6 +56,7 @@ const navItems = [
   { href: "/dispatch", label: "Dispatch", icon: Route },
   { href: "/field", label: "Field View", icon: Smartphone },
   { href: "/reports", label: "Reports", icon: BarChart3 },
+  { href: "/qa", label: "QA Portal", icon: FlaskConical },
 ];
 
 interface SidebarProps {

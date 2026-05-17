@@ -2,7 +2,54 @@
  * Manager: SR creation with inventory parts and service packages
  * Covers: New SR wizard, collapsible service categories, inventory part add, package selection, totals in Review step.
  */
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
+
+/** Type a char in the customer search box and click the first result. */
+async function selectFirstCustomer(page: Page): Promise<boolean> {
+  const searchInput = page.getByPlaceholder(/search by name or phone/i);
+  if (!(await searchInput.isVisible({ timeout: 8000 }).catch(() => false))) return false;
+  await searchInput.fill("a");
+  await page.waitForTimeout(600);
+  let result = page.locator("button").filter({ hasText: /\d{7,}/ }).first();
+  if (!(await result.isVisible({ timeout: 2000 }).catch(() => false))) {
+    await searchInput.fill("e");
+    await page.waitForTimeout(600);
+    result = page.locator("button").filter({ hasText: /\d{7,}/ }).first();
+  }
+  if (!(await result.isVisible({ timeout: 2000 }).catch(() => false))) return false;
+  await result.click();
+  await page.waitForTimeout(400);
+  return true;
+}
+
+/** Click the first available vehicle button. */
+async function selectFirstVehicle(page: Page): Promise<boolean> {
+  const vehicleBtn = page.locator("button").filter({ hasText: /petrol|diesel|cng|electric|hybrid/i }).first();
+  if (await vehicleBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+    await vehicleBtn.click();
+    await page.waitForTimeout(400);
+    return true;
+  }
+  return false;
+}
+
+/** Navigate from step 1 to the Services step (step 4). Returns false if no customers. */
+async function goToServicesStep(page: Page): Promise<boolean> {
+  if (!(await selectFirstCustomer(page))) return false;
+  await page.getByRole("button", { name: /^continue$/i }).click();
+  await page.waitForTimeout(600);
+  await selectFirstVehicle(page);
+  await page.getByRole("button", { name: /^continue$/i }).click();
+  await page.waitForTimeout(600);
+  // Issue step — fill description
+  const descArea = page.getByPlaceholder(/problem|customer's own words/i);
+  if (await descArea.isVisible({ timeout: 3000 }).catch(() => false)) {
+    await descArea.fill("Test service");
+  }
+  await page.getByRole("button", { name: /^continue$/i }).click();
+  await page.waitForTimeout(1000);
+  return true;
+}
 
 test.describe("Manager – SR creation with inventory & packages", () => {
   test("New SR form loads at step 1 (customer)", async ({ page }) => {
@@ -13,34 +60,17 @@ test.describe("Manager – SR creation with inventory & packages", () => {
 
   test("service categories are collapsible in step 2", async ({ page }) => {
     await page.goto("/services/new");
+    await expect(page.getByText(/customer/i).first()).toBeVisible({ timeout: 8000 });
 
-    // Need to get past step 1 — pick first customer in dropdown or search
-    // Look for a select or search input on step 1
-    const customerStep = page.getByText(/customer/i).first();
-    await expect(customerStep).toBeVisible({ timeout: 8000 });
-
-    // Try to advance past customer step by clicking a customer if available
-    const customerRow = page.locator("tr.cursor-pointer, [class*='cursor-pointer']").first();
-    if (await customerRow.isVisible({ timeout: 3000 })) {
-      await customerRow.click();
-      // After customer selected, look for vehicle selection
-      const vehicleRow = page.locator("tr.cursor-pointer, [class*='cursor-pointer']").first();
-      if (await vehicleRow.isVisible({ timeout: 3000 })) {
-        await vehicleRow.click();
-      }
-      // Try to proceed to services step
-      const nextBtn = page.getByRole("button", { name: /next|continue|services/i });
-      if (await nextBtn.isVisible({ timeout: 3000 })) {
-        await nextBtn.click();
-        await page.waitForTimeout(1000);
-        // Now on services step — check for collapsible categories
-        const chevron = page.locator("[class*='cursor-pointer']").filter({ hasText: /wash|oil|tyre|brake|4W|2W/i }).first();
-        if (await chevron.isVisible({ timeout: 5000 })) {
-          await expect(chevron).toBeVisible();
-        }
-      }
-    } else {
+    const advanced = await goToServicesStep(page);
+    if (!advanced) {
       test.info().annotations.push({ type: "info", description: "No customers to select — skipping wizard navigation" });
+      return;
+    }
+    // Now on services step — check for collapsible categories
+    const chevron = page.locator("[class*='cursor-pointer']").filter({ hasText: /wash|oil|tyre|brake|4W|2W/i }).first();
+    if (await chevron.isVisible({ timeout: 5000 })) {
+      await expect(chevron).toBeVisible();
     }
   });
 
@@ -63,34 +93,16 @@ test.describe("Manager – SR creation with inventory & packages", () => {
     await page.goto("/services/new");
     await expect(page).toHaveURL(/services\/new/);
 
-    // Navigate through wizard if customers exist
-    const customerRow = page.locator("tr.cursor-pointer").first();
-    if (!(await customerRow.isVisible({ timeout: 3000 }))) {
+    const advanced = await goToServicesStep(page);
+    if (!advanced) {
       test.info().annotations.push({ type: "info", description: "No customers available to complete SR wizard" });
       return;
     }
-
-    await customerRow.click();
-    // Vehicle selection
-    const vehicleRow = page.locator("tr.cursor-pointer").first();
-    if (await vehicleRow.isVisible({ timeout: 3000 })) {
-      await vehicleRow.click();
+    // Continue through remaining steps to reach Review
+    for (let i = 0; i < 3; i++) {
+      const btn = page.getByRole("button", { name: /^continue$/i }).first();
+      if (await btn.isVisible({ timeout: 2000 })) { await btn.click(); await page.waitForTimeout(800); }
     }
-    // Description
-    const descInput = page.locator("textarea[placeholder*='problem' i], textarea").first();
-    if (await descInput.isVisible({ timeout: 3000 })) {
-      await descInput.fill("Test service request from Playwright");
-    }
-    // Proceed through steps
-    const nextBtns = page.getByRole("button", { name: /next|continue/i });
-    for (let i = 0; i < 5; i++) {
-      const btn = nextBtns.first();
-      if (await btn.isVisible({ timeout: 2000 })) {
-        await btn.click();
-        await page.waitForTimeout(800);
-      }
-    }
-    // On review step, look for total
     const reviewTotal = page.getByText(/estimated total|total|₹/i).first();
     if (await reviewTotal.isVisible({ timeout: 5000 })) {
       await expect(reviewTotal).toBeVisible();
@@ -101,34 +113,16 @@ test.describe("Manager – SR creation with inventory & packages", () => {
     await page.goto("/services/new");
     await expect(page).toHaveURL(/services\/new/);
 
-    // Navigate to services step if customer available
-    const customerRow = page.locator("tr.cursor-pointer").first();
-    if (!(await customerRow.isVisible({ timeout: 3000 }))) {
+    const advanced = await goToServicesStep(page);
+    if (!advanced) {
       test.info().annotations.push({ type: "info", description: "No customers available" });
       return;
     }
 
-    await customerRow.click();
-    const vehicleRow = page.locator("tr.cursor-pointer").first();
-    if (await vehicleRow.isVisible({ timeout: 3000 })) {
-      await vehicleRow.click();
-    }
-    // Move forward to services step
-    for (let i = 0; i < 3; i++) {
-      const next = page.getByRole("button", { name: /next|continue/i }).first();
-      if (await next.isVisible({ timeout: 2000 })) {
-        await next.click();
-        await page.waitForTimeout(600);
-      }
-    }
-
-    // Check if package checkboxes are visible
     const pkgCheckbox = page.locator("input[type='checkbox']").first();
     if (await pkgCheckbox.isVisible({ timeout: 3000 })) {
-      const beforeTotal = await page.getByText(/₹\d+/).first().textContent().catch(() => "0");
       await pkgCheckbox.check();
       await page.waitForTimeout(500);
-      // Total or count in footer bar should have updated
       await expect(page).not.toHaveURL(/error/);
     } else {
       test.info().annotations.push({ type: "info", description: "No packages/checkboxes on services step" });
@@ -137,24 +131,11 @@ test.describe("Manager – SR creation with inventory & packages", () => {
 
   test("can select inventory item from dropdown in services step", async ({ page }) => {
     await page.goto("/services/new");
-    const customerRow = page.locator("tr.cursor-pointer").first();
-    if (!(await customerRow.isVisible({ timeout: 3000 }))) {
+
+    const advanced = await goToServicesStep(page);
+    if (!advanced) {
       test.info().annotations.push({ type: "info", description: "No customers available" });
       return;
-    }
-
-    await customerRow.click();
-    const vehicleRow = page.locator("tr.cursor-pointer").first();
-    if (await vehicleRow.isVisible({ timeout: 3000 })) {
-      await vehicleRow.click();
-    }
-    // Advance to services step
-    for (let i = 0; i < 3; i++) {
-      const next = page.getByRole("button", { name: /next|continue/i }).first();
-      if (await next.isVisible({ timeout: 2000 })) {
-        await next.click();
-        await page.waitForTimeout(600);
-      }
     }
 
     // Inventory select dropdown

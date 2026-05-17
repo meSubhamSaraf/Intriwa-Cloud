@@ -7,14 +7,14 @@ export default defineConfig({
   timeout: 30_000,
   // Use `npm run test:linear` to also file Linear issues on failure
   reporter: process.env.LINEAR_API_KEY
-    ? [["html"], ["./tests/reporters/linear-reporter.ts"]]
-    : "html",
+    ? [["html"], ["./tests/reporters/linear-reporter.ts"], ["./tests/reporters/qa-db-reporter.ts"]]
+    : [["html"], ["./tests/reporters/qa-db-reporter.ts"]],
 
   use: {
     baseURL: process.env.TEST_BASE_URL ?? "http://localhost:3000",
-    trace: "on-first-retry",
-    screenshot: "only-on-failure",
-    video: "retain-on-failure",
+    trace: "on",
+    screenshot: "on",
+    video: "on",
   },
 
   projects: [

@@ -111,11 +111,26 @@ test.describe("Manager – Packages in Settings", () => {
     await page.getByRole("button", { name: /new.*package|add.*package/i }).click();
     await expect(page.getByRole("heading", { name: /new service package/i })).toBeVisible({ timeout: 5000 });
 
-    // MRP Total should be visible in the summary strip
-    const mrpLabel = page.getByText(/mrp total/i);
-    await expect(mrpLabel).toBeVisible({ timeout: 3000 });
+    // Fill package name and price so the summary strip activates
+    const nameInput = page.locator("input[placeholder*='package name' i], input[placeholder*='name' i]").first();
+    if (await nameInput.isVisible({ timeout: 2000 })) await nameInput.fill("MRP Test Package");
+    const priceInput = page.locator("input[type='number']").first();
+    if (await priceInput.isVisible({ timeout: 2000 })) await priceInput.fill("500");
 
-    // Duration summary line
+    // Add an item so mrpTotal > 0 (MRP Total only renders when mrpTotal > 0 || priceNum > 0)
+    const addItemBtn = page.getByRole("button", { name: /add item|add part|\+ item/i });
+    if (await addItemBtn.isVisible({ timeout: 3000 })) {
+      await addItemBtn.click();
+      const itemDesc = page.locator("input[placeholder*='description' i], input[placeholder*='item' i], input[placeholder*='service' i]").last();
+      if (await itemDesc.isVisible({ timeout: 2000 })) await itemDesc.fill("Oil Change");
+      const mrpInput = page.locator("input[placeholder*='MRP' i], input[placeholder*='mrp' i], input[placeholder*='price' i]").last();
+      if (await mrpInput.isVisible({ timeout: 2000 })) await mrpInput.fill("800");
+    }
+
+    // MRP Total shows once mrpTotal > 0 or priceNum > 0
+    const mrpLabel = page.getByText(/mrp total/i);
+    await expect(mrpLabel).toBeVisible({ timeout: 5000 });
+
     const durationSummary = page.getByText(/duration/i).last();
     await expect(durationSummary).toBeVisible({ timeout: 3000 });
   });
