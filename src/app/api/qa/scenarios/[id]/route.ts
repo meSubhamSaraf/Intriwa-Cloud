@@ -5,8 +5,7 @@ import { NextResponse } from "next/server";
 import { withAuthParams } from "@/app/api/_helpers/auth";
 import { prisma } from "@/lib/connectors/prisma";
 
-export const PATCH = withAuthParams(async (req, { garageId, params }) => {
-  const { id } = await params;
+export const PATCH = withAuthParams<{ id: string }>(async (req, { garageId }, { id }) => {
   const body = await req.json();
   const scenario = await prisma.qAScenario.updateMany({
     where: { id, garageId },
@@ -22,8 +21,7 @@ export const PATCH = withAuthParams(async (req, { garageId, params }) => {
   return NextResponse.json({ ok: true });
 });
 
-export const DELETE = withAuthParams(async (_req, { garageId, params }) => {
-  const { id } = await params;
+export const DELETE = withAuthParams<{ id: string }>(async (_req, { garageId }, { id }) => {
   await prisma.qAScenario.deleteMany({ where: { id, garageId } });
   return NextResponse.json({ ok: true });
 });
