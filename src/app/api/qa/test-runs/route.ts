@@ -8,6 +8,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { withAuth } from "@/app/api/_helpers/auth";
 import { prisma } from "@/lib/connectors/prisma";
+import { Prisma } from "@/generated/prisma";
 
 export const GET = withAuth(async (_req, { garageId }) => {
   const runs = await prisma.qATestRun.findMany({
@@ -48,7 +49,7 @@ function sanitise(body: Record<string, unknown>) {
     failed:   Number(body.failed  ?? 0),
     skipped:  Number(body.skipped ?? 0),
     duration: Number(body.duration ?? 0),
-    results:  body.results ?? null,
+    results:  body.results ?? Prisma.JsonNull,
   };
 }
 
