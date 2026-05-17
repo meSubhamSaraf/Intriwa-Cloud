@@ -6,6 +6,7 @@
 // a Supabase cookie. Falls back to normal withAuth for manual calls.
 
 import { NextResponse, type NextRequest } from "next/server";
+import { withAuth } from "@/app/api/_helpers/auth";
 import { prisma } from "@/lib/connectors/prisma";
 import { Prisma } from "@/generated/prisma/client";
 
