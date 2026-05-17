@@ -6,7 +6,6 @@
 // a Supabase cookie. Falls back to normal withAuth for manual calls.
 
 import { NextResponse, type NextRequest } from "next/server";
-import { withAuth } from "@/app/api/_helpers/auth";
 import { prisma } from "@/lib/connectors/prisma";
 import { Prisma } from "@/generated/prisma/client";
 
@@ -24,16 +23,8 @@ export async function POST(req: NextRequest) {
   const secret  = process.env.QA_REPORTER_KEY;
   const garageId = req.nextUrl.searchParams.get("garageId") ?? process.env.DEFAULT_GARAGE_ID;
 
-  // Authenticate: either matching API key or fall through to session auth
   if (!apiKey || !secret || apiKey !== secret || !garageId) {
-    // Try session-based auth fallback
-    return withAuth(async (r, ctx) => {
-      const body = await r.json();
-      const run = await prisma.qATestRun.create({ data: { garageId: ctx.garageId, ...sanitise(body) } });
-      // Update scenario statuses based on results
-      if (body.results) await syncScenarioStatuses(ctx.garageId, body.results);
-      return NextResponse.json(run, { status: 201 });
-    })(req, {});
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
   const body = await req.json();
