@@ -149,7 +149,7 @@ export const GET = withAuth(async (_req, { garageId, profile }) => {
 
   for (const pkg of packageSRs) {
     const sr = pkg.sr;
-    const key = `pkg-${sr.id}`;
+    const key = sr.id;
     if (!bySR.has(key)) {
       bySR.set(key, {
         srId: sr.id,
