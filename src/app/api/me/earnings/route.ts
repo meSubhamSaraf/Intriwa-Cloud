@@ -113,6 +113,65 @@ export const GET = withAuth(async (_req, { garageId, profile }) => {
     totalAccrued += amt;
   }
 
+  // ── Package SRs accrued earnings (not yet in a payout) ───────────────────
+  // SRs where a package was applied and the SR's primary mechanic is this mechanic
+  const paidSRIds = new Set(
+    (await prisma.mechanicPayoutItem.findMany({
+      where: { payout: { mechanicId: mechanic.id }, serviceItemId: null },
+      select: { serviceRequestId: true },
+    })).map((r) => r.serviceRequestId).filter((x): x is string => x !== null)
+  );
+
+  const packageSRs = await prisma.sRServicePackage.findMany({
+    where: {
+      sr: {
+        mechanicId: mechanic.id,
+        OR: [
+          { status: "READY" },
+          { status: "CLOSED", closedAt: { gt: accrualStart } },
+        ],
+        NOT: { id: { in: [...paidSRIds] } },
+      },
+    },
+    include: {
+      sr: {
+        include: {
+          customer: { select: { name: true } },
+          vehicle: { select: { make: true, model: true, regNumber: true } },
+        },
+      },
+    },
+  });
+
+  for (const pkg of packageSRs) {
+    const sr = pkg.sr;
+    const key = `pkg-${sr.id}`;
+    if (!bySR.has(key)) {
+      bySR.set(key, {
+        srId: sr.id,
+        srNumber: sr.srNumber,
+        status: sr.status,
+        customerName: sr.customer?.name ?? "Customer",
+        vehicleLabel: sr.vehicle
+          ? `${sr.vehicle.make} ${sr.vehicle.model}${sr.vehicle.regNumber ? ` · ${sr.vehicle.regNumber}` : ""}`
+          : "",
+        closedAt: sr.closedAt?.toISOString() ?? null,
+        openedAt: sr.openedAt?.toISOString() ?? null,
+        itemCount: 0,
+        total: 0,
+      });
+    }
+    const row = bySR.get(key)!;
+    const amt = mechanic.payoutConfigType === "PERCENT_OF_ITEM"
+      ? Number(pkg.packagePrice) * Number(mechanic.payoutRate ?? 0)
+      : mechanic.payoutConfigType === "FIXED_PER_ITEM"
+      ? Number(mechanic.payoutRate ?? 0)
+      : 0;
+    row.itemCount++;
+    row.total += amt;
+    totalAccrued += amt;
+  }
+
   let pendingPenaltyTotal = 0;
   try {
     const penalties = await prisma.mechanicPenalty.findMany({

@@ -47,13 +47,18 @@ export async function requireAuth(): Promise<AuthContext> {
     if (linked) { role = "MECHANIC"; garageId = linked.garageId; }
   }
 
-  // Email-based mechanic logins: look up by email if garageId still missing
-  if (role === "MECHANIC" && !garageId && user.email) {
+  // Email-based mechanic logins: look up by email regardless of role metadata.
+  // Mechanic accounts are often created without role/garageId in Supabase metadata,
+  // so we always try matching by email if garageId is still unresolved.
+  if (!garageId && user.email) {
     const linked = await prisma.mechanic.findFirst({
-      where: { email: user.email, isActive: true },
+      where: { email: { equals: user.email, mode: "insensitive" }, isActive: true },
       select: { garageId: true },
     });
-    garageId = linked?.garageId ?? null;
+    if (linked) {
+      role = "MECHANIC";
+      garageId = linked.garageId;
+    }
   }
 
   // Upsert the Profile — creates it on first login, no-ops on subsequent ones
@@ -67,8 +72,9 @@ export async function requireAuth(): Promise<AuthContext> {
       garageId,
     },
     update: {
-      // Backfill garageId if it was resolved above and was previously null
+      // Backfill garageId and correct role if resolved above
       ...(garageId ? { garageId } : {}),
+      ...(role === "MECHANIC" ? { role: "MECHANIC" } : {}),
     },
   });
 
