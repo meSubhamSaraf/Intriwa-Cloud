@@ -16,6 +16,7 @@ type Vehicle = {
   regNumber: string | null; color: string | null;
   type: string; fuelType: string;
   pucExpiry: string | null; insuranceExpiry: string | null;
+  lastServiceDate: string | null; lastSrNumber: string | null;
   customer: Customer;
 };
 
@@ -62,6 +63,7 @@ export default function VehiclesPage() {
   const [typeFilter, setTypeFilter] = useState("all");
   const [fuelFilter, setFuelFilter] = useState("all");
   const [docFilter, setDocFilter] = useState("all");
+  const [sortBy, setSortBy] = useState<"added" | "lastService">("added");
 
   useEffect(() => {
     fetch("/api/vehicles")
@@ -77,17 +79,27 @@ export default function VehiclesPage() {
     return { ...v, pucDays, insDays, docAlert };
   }), [vehicles]);
 
-  const filtered = enriched.filter((v) => {
-    const q = query.toLowerCase();
-    const matchQ = !query ||
-      v.make.toLowerCase().includes(q) || v.model.toLowerCase().includes(q) ||
-      (v.regNumber?.toLowerCase().includes(q) ?? false) ||
-      v.customer.name.toLowerCase().includes(q) || v.customer.phone.includes(query);
-    const matchType = typeFilter === "all" || typeLabel(v.type) === typeFilter;
-    const matchFuel = fuelFilter === "all" || v.fuelType === fuelFilter;
-    const matchDoc = docFilter === "all" || (docFilter === "alert" && v.docAlert) || (docFilter === "ok" && !v.docAlert);
-    return matchQ && matchType && matchFuel && matchDoc;
-  });
+  const filtered = useMemo(() => {
+    const list = enriched.filter((v) => {
+      const q = query.toLowerCase();
+      const matchQ = !query ||
+        v.make.toLowerCase().includes(q) || v.model.toLowerCase().includes(q) ||
+        (v.regNumber?.toLowerCase().includes(q) ?? false) ||
+        v.customer.name.toLowerCase().includes(q) || v.customer.phone.includes(query);
+      const matchType = typeFilter === "all" || typeLabel(v.type) === typeFilter;
+      const matchFuel = fuelFilter === "all" || v.fuelType === fuelFilter;
+      const matchDoc = docFilter === "all" || (docFilter === "alert" && v.docAlert) || (docFilter === "ok" && !v.docAlert);
+      return matchQ && matchType && matchFuel && matchDoc;
+    });
+    if (sortBy === "lastService") {
+      list.sort((a, b) => {
+        const da = a.lastServiceDate ? new Date(a.lastServiceDate).getTime() : 0;
+        const db = b.lastServiceDate ? new Date(b.lastServiceDate).getTime() : 0;
+        return db - da;
+      });
+    }
+    return list;
+  }, [enriched, query, typeFilter, fuelFilter, docFilter, sortBy]);
 
   const alertCount = enriched.filter((v) => v.docAlert).length;
 
@@ -144,13 +156,17 @@ export default function VehiclesPage() {
           <option value="alert">Doc alerts</option>
           <option value="ok">Docs OK</option>
         </select>
+        <select value={sortBy} onChange={(e) => setSortBy(e.target.value as "added" | "lastService")} className="h-8 px-2.5 text-sm border border-slate-200 rounded-md bg-white text-slate-700 focus:outline-none">
+          <option value="added">Sort: Date added</option>
+          <option value="lastService">Sort: Last service</option>
+        </select>
       </div>
 
       <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50">
-              {["Registration","Vehicle","Type","Fuel","Owner","PUC","Insurance",""].map((h) => (
+              {["Registration","Vehicle","Type","Fuel","Owner","Last Service","PUC","Insurance",""].map((h) => (
                 <th key={h} className="px-3 py-2.5 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
               ))}
             </tr>
@@ -177,6 +193,16 @@ export default function VehiclesPage() {
                 <td className="px-3 py-2.5">
                   <p className="text-[12px] font-medium text-slate-800">{v.customer.name}</p>
                   <p className="text-[10px] text-slate-400 tabular-nums">{v.customer.phone}</p>
+                </td>
+                <td className="px-3 py-2.5">
+                  {v.lastServiceDate ? (
+                    <div>
+                      <p className="text-[12px] text-slate-700">{fmtDate(v.lastServiceDate)}</p>
+                      {v.lastSrNumber && <p className="text-[10px] text-slate-400">{v.lastSrNumber}</p>}
+                    </div>
+                  ) : (
+                    <span className="text-[11px] text-slate-400">Never</span>
+                  )}
                 </td>
                 <td className="px-3 py-2.5"><DocPill date={v.pucExpiry} label="PUC" /></td>
                 <td className="px-3 py-2.5"><DocPill date={v.insuranceExpiry} label="Ins" /></td>

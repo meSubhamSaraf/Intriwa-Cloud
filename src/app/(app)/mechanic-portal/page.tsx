@@ -32,7 +32,7 @@ type AccruedJob = {
   srId: string; srNumber: string; status: string;
   customerName: string; vehicleLabel: string;
   closedAt: string | null; openedAt: string | null;
-  itemCount: number; total: number;
+  itemCount: number; total: number; serviceValue: number;
 };
 
 type EarningsData = {
@@ -773,6 +773,16 @@ function EarningsTab() {
                   </div>
                   <p className="text-[11px] text-slate-400 truncate">{job.vehicleLabel}</p>
                   <p className="text-[10px] text-slate-400">{job.srNumber} · {job.itemCount} service item{job.itemCount !== 1 ? "s" : ""}</p>
+                  {payoutConfigType === "PERCENT_OF_ITEM" && job.serviceValue > 0 && (
+                    <p className="text-[10px] text-slate-400">
+                      {(payoutRate * 100).toFixed(0)}% of {fmtRupee(job.serviceValue)}
+                    </p>
+                  )}
+                  {payoutConfigType === "FIXED_PER_ITEM" && (
+                    <p className="text-[10px] text-slate-400">
+                      {fmtRupee(payoutRate)} × {job.itemCount}
+                    </p>
+                  )}
                   {job.closedAt && <p className="text-[10px] text-slate-300">{fmtDate(job.closedAt)}</p>}
                 </div>
                 <div className="text-right shrink-0">

@@ -42,6 +42,7 @@ type SRInventoryUsage = {
 type TimelineEvent = {
   id: string; type: string; body: string | null;
   actorName: string | null; metadata: unknown; createdAt: string;
+  fileUrl: string | null;
 };
 
 type SR = {
@@ -49,6 +50,7 @@ type SR = {
   locationType: "GARAGE" | "FIELD" | "SOCIETY";
   complaint: string | null; diagnosis: string | null; notes: string | null;
   estimatedKm: number | null;
+  kmBefore: number | null; kmAfter: number | null;
   openedAt: string; closedAt: string | null; scheduledAt: string | null;
   createdAt: string;
   customer: Customer | null;
@@ -82,6 +84,7 @@ type SRObservation = {
   status: string;
   followUpNote: string | null;
   raisedByName: string | null;
+  photoUrl: string | null;
   createdAt: string;
 };
 
@@ -174,6 +177,11 @@ function TLEventRow({ event }: { event: TimelineEvent }) {
         <p className="text-[10px] text-slate-400 mt-0.5">
           {event.actorName && <>{event.actorName} · </>}{fmtDateTime(event.createdAt)}
         </p>
+        {event.fileUrl && (
+          <a href={event.fileUrl} target="_blank" rel="noopener noreferrer" className="mt-1.5 block">
+            <img src={event.fileUrl} alt="Uploaded photo" className="max-h-40 rounded-lg border border-slate-200 object-cover" />
+          </a>
+        )}
       </div>
     </div>
   );
@@ -1379,6 +1387,11 @@ export default function ServiceRequestDetailPage() {
                       {obs.estimatedCost != null && obs.estimatedCost > 0 && (
                         <p className="text-[11px] text-slate-500 mt-1">Est. ₹{Number(obs.estimatedCost).toLocaleString("en-IN")}</p>
                       )}
+                      {obs.photoUrl && (
+                        <a href={obs.photoUrl} target="_blank" rel="noopener noreferrer" className="mt-1.5 block">
+                          <img src={obs.photoUrl} alt="Observation photo" className="max-h-32 rounded-lg border border-slate-200 object-cover" />
+                        </a>
+                      )}
                       {obs.followUpNote && (() => {
                         try {
                           const fn = JSON.parse(obs.followUpNote);
@@ -1517,6 +1530,33 @@ export default function ServiceRequestDetailPage() {
               </Link>
             )}
           </div>
+
+          {/* ODO readings */}
+          {(sr.kmBefore != null || sr.kmAfter != null) && (
+            <div className="bg-white border border-slate-200 rounded-lg px-4 py-3">
+              <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-2">Odometer Readings</p>
+              <div className="flex gap-4">
+                {sr.kmBefore != null && (
+                  <div>
+                    <p className="text-[10px] text-slate-400">Before service</p>
+                    <p className="text-sm font-semibold text-slate-800">{sr.kmBefore.toLocaleString("en-IN")} km</p>
+                  </div>
+                )}
+                {sr.kmAfter != null && (
+                  <div>
+                    <p className="text-[10px] text-slate-400">After service</p>
+                    <p className="text-sm font-semibold text-slate-800">{sr.kmAfter.toLocaleString("en-IN")} km</p>
+                  </div>
+                )}
+                {sr.kmBefore != null && sr.kmAfter != null && (
+                  <div>
+                    <p className="text-[10px] text-slate-400">Covered</p>
+                    <p className="text-sm font-semibold text-slate-800">{(sr.kmAfter - sr.kmBefore).toLocaleString("en-IN")} km</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

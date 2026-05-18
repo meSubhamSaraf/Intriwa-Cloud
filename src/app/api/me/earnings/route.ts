@@ -84,7 +84,7 @@ export const GET = withAuth(async (_req, { garageId, profile }) => {
     srId: string; srNumber: string; status: string;
     customerName: string; vehicleLabel: string;
     closedAt: string | null; openedAt: string | null;
-    itemCount: number; total: number;
+    itemCount: number; total: number; serviceValue: number;
   }>();
 
   let totalAccrued = 0;
@@ -104,12 +104,14 @@ export const GET = withAuth(async (_req, { garageId, profile }) => {
         openedAt: sr.openedAt?.toISOString() ?? null,
         itemCount: 0,
         total: 0,
+        serviceValue: 0,
       });
     }
     const row = bySR.get(item.serviceRequestId)!;
     const amt = calcItemAmount(mechanic.payoutConfigType, mechanic.payoutRate, item.total);
     row.itemCount++;
     row.total += amt;
+    row.serviceValue += Number(item.total);
     totalAccrued += amt;
   }
 
@@ -159,16 +161,19 @@ export const GET = withAuth(async (_req, { garageId, profile }) => {
         openedAt: sr.openedAt?.toISOString() ?? null,
         itemCount: 0,
         total: 0,
+        serviceValue: 0,
       });
     }
     const row = bySR.get(key)!;
+    const pkgPrice = Number(pkg.packagePrice);
     const amt = mechanic.payoutConfigType === "PERCENT_OF_ITEM"
-      ? Number(pkg.packagePrice) * Number(mechanic.payoutRate ?? 0)
+      ? pkgPrice * Number(mechanic.payoutRate ?? 0)
       : mechanic.payoutConfigType === "FIXED_PER_ITEM"
       ? Number(mechanic.payoutRate ?? 0)
       : 0;
     row.itemCount++;
     row.total += amt;
+    row.serviceValue += pkgPrice;
     totalAccrued += amt;
   }
 

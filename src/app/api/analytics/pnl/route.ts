@@ -83,9 +83,10 @@ export const GET = withAuth(async (req, { garageId }) => {
         },
       },
     },
-    select: { inventoryItemId: true, quantity: true, mrpPrice: true },
+    select: { inventoryItemId: true, quantity: true, mrpPrice: true, srPackage: { select: { srId: true } } },
   });
   let packagePartsCost = 0;
+  const packageCostBySr: Record<string, number> = {};
   if (packageItems.length > 0) {
     const invIds = [...new Set(packageItems.map((p) => p.inventoryItemId!))];
     const invItems = await prisma.inventoryItem.findMany({
@@ -93,10 +94,12 @@ export const GET = withAuth(async (req, { garageId }) => {
       select: { id: true, costPrice: true },
     });
     const costById = new Map(invItems.map((i) => [i.id, Number(i.costPrice ?? 0)]));
-    packagePartsCost = packageItems.reduce((sum, p) => {
-      const cost = costById.get(p.inventoryItemId!) ?? Number(p.mrpPrice);
-      return sum + cost * p.quantity;
-    }, 0);
+    for (const p of packageItems) {
+      const cost = (costById.get(p.inventoryItemId!) ?? Number(p.mrpPrice)) * p.quantity;
+      packagePartsCost += cost;
+      const srId = p.srPackage.srId;
+      packageCostBySr[srId] = (packageCostBySr[srId] ?? 0) + cost;
+    }
   }
 
   // ── 3. Fuel allowances: SRs closed in period ─────────────────────────────
@@ -192,14 +195,11 @@ export const GET = withAuth(async (req, { garageId }) => {
     },
   });
 
-  // Per-SR mechanic payouts (FREELANCE/AFFILIATE only)
+  // Per-SR mechanic payouts (all employment types)
   const srPayoutsRaw = await prisma.mechanicPayoutItem.findMany({
     where: {
       serviceRequestId: { in: closedSRs.map((sr) => sr.id) },
-      payout: {
-        status: { in: ["APPROVED", "PAID"] },
-        mechanic: { employmentType: { in: ["FREELANCE", "AFFILIATE"] } },
-      },
+      payout: { status: { in: ["APPROVED", "PAID"] } },
     },
     select: { serviceRequestId: true, amount: true },
   });
@@ -212,27 +212,29 @@ export const GET = withAuth(async (req, { garageId }) => {
   }
 
   const jobBreakdown = closedSRs.map((sr) => {
-    const invoiceAmount  = sr.invoices.reduce((s, inv) => s + Number(inv.total), 0);
-    const srPartsRevenue = sr.inventoryUsages.reduce((s, u) => s + Number(u.total), 0);
-    const srPartsCogs    = sr.inventoryUsages.reduce((s, u) => {
+    const invoiceAmount    = sr.invoices.reduce((s, inv) => s + Number(inv.total), 0);
+    const srPartsRevenue   = sr.inventoryUsages.reduce((s, u) => s + Number(u.total), 0);
+    const srPartsCogs      = sr.inventoryUsages.reduce((s, u) => {
       const qty  = Number(u.quantity);
       return s + (u.costPrice != null ? Number(u.costPrice) * qty : Number(u.total));
     }, 0);
-    const srAftermarket  = sr.addOns.reduce((s, a) => s + Number(a.estimatedCost), 0);
-    const srFuel         = Number(sr.fuelAllowance ?? 0);
-    const srPayout       = payoutBySr[sr.id] ?? 0;
-    const margin         = invoiceAmount - srPartsCogs - srAftermarket - srFuel - srPayout;
+    const srAftermarket    = sr.addOns.reduce((s, a) => s + Number(a.estimatedCost), 0);
+    const srFuel           = Number(sr.fuelAllowance ?? 0);
+    const srPayout         = payoutBySr[sr.id] ?? 0;
+    const srPkgPartsCost   = packageCostBySr[sr.id] ?? 0;
+    const margin           = invoiceAmount - srPartsCogs - srAftermarket - srFuel - srPayout - srPkgPartsCost;
 
     return {
-      srId:            sr.id,
-      srNumber:        sr.srNumber,
-      customerName:    sr.customer?.name ?? "—",
+      srId:              sr.id,
+      srNumber:          sr.srNumber,
+      customerName:      sr.customer?.name ?? "—",
       invoiceAmount,
-      partsRevenue:    srPartsRevenue,
-      partsCogs:       srPartsCogs,
-      aftermarketCost: srAftermarket,
-      fuelAllowance:   srFuel,
-      mechanicPayout:  srPayout,
+      partsRevenue:      srPartsRevenue,
+      partsCogs:         srPartsCogs,
+      packagePartsCost:  srPkgPartsCost,
+      aftermarketCost:   srAftermarket,
+      fuelAllowance:     srFuel,
+      mechanicPayout:    srPayout,
       margin,
     };
   });
