@@ -228,14 +228,25 @@ function ObservationModal({ srId, customerId, vehicleId, mechanicId, mechanicNam
   const [desc, setDesc] = useState("");
   const [severity, setSeverity] = useState<"URGENT" | "ROUTINE" | "COSMETIC">("ROUTINE");
   const [cost, setCost] = useState("");
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault(); setSaving(true);
     try {
+      let photoUrl: string | null = null;
+      if (photoFile) {
+        const { file: ready, ok } = await prepareForUpload(photoFile);
+        if (ok) {
+          const ext = ready.name.split(".").pop() ?? "jpg";
+          const result = await uploadMedia(ready, `observations/${customerId ?? "unknown"}/${Date.now()}.${ext}`);
+          photoUrl = result?.url ?? null;
+        }
+      }
       const res = await fetch("/api/observations", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ customerId, vehicleId, srId, raisedById: mechanicId, raisedByName: mechanicName, description: desc, severity, estimatedCost: cost ? Number(cost) : null }),
+        body: JSON.stringify({ customerId, vehicleId, srId, raisedById: mechanicId, raisedByName: mechanicName, description: desc, severity, estimatedCost: cost ? Number(cost) : null, photoUrl }),
       });
       if (!res.ok) { toast.error("Failed to save"); return; }
       toast.success("Observation flagged — ops will follow up."); onClose();
@@ -263,10 +274,17 @@ function ObservationModal({ srId, customerId, vehicleId, mechanicId, mechanicNam
             <input type="number" value={cost} onChange={e => setCost(e.target.value)} min={0} placeholder="Est. cost ₹ (opt.)"
               className="w-full h-9 px-2 text-sm border border-slate-200 rounded-lg focus:outline-none" />
           </div>
+          <button type="button" onClick={() => fileRef.current?.click()}
+            className={`w-full h-9 flex items-center justify-center gap-2 border border-dashed rounded-lg text-sm ${photoFile ? "border-green-400 text-green-700 bg-green-50" : "border-slate-300 text-slate-500 hover:bg-slate-50"}`}>
+            <Camera className="w-4 h-4" />
+            {photoFile ? photoFile.name.slice(0, 28) : "Attach photo (optional)"}
+          </button>
+          <input type="file" accept="image/*" capture="environment" className="hidden" ref={fileRef}
+            onChange={e => { if (e.target.files?.[0]) setPhotoFile(e.target.files[0]); }} />
           <div className="flex gap-2 pt-1">
             <button type="button" onClick={onClose} className="flex-1 h-10 border border-slate-200 text-sm text-slate-600 rounded-xl hover:bg-slate-50">Cancel</button>
-            <button type="submit" disabled={saving} className="flex-1 h-10 bg-amber-500 text-white text-sm font-medium rounded-xl hover:bg-amber-600 disabled:opacity-60">
-              {saving ? "Saving…" : "Flag"}
+            <button type="submit" disabled={saving} className="flex-1 h-10 bg-amber-500 text-white text-sm font-medium rounded-xl hover:bg-amber-600 disabled:opacity-60 flex items-center justify-center gap-1.5">
+              {saving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}{saving ? "Saving…" : "Flag"}
             </button>
           </div>
         </form>

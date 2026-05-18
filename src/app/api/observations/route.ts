@@ -69,6 +69,7 @@ export const POST = withAuth(async (req, { garageId }) => {
       description:   body.description,
       severity:      body.severity      || "ROUTINE",
       estimatedCost: body.estimatedCost ? Number(body.estimatedCost) : null,
+      photoUrl:      body.photoUrl      || null,
       followUpNote,
     },
     include: {

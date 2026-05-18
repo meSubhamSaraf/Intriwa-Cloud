@@ -65,6 +65,8 @@ type AddOn = {
   id: string;
   description: string;
   estimatedCost: number;
+  sellingPrice: number | null;
+  quantity: number;
   status: string;
   notes: string | null;
 };
@@ -95,10 +97,6 @@ type AvailablePackage = {
 };
 
 // ── Helpers ────────────────────────────────────────────────────────
-
-function parseAddonNotes(notes: string | null): { sellingPrice?: number | null; quantity?: number } {
-  try { return JSON.parse(notes ?? "{}"); } catch { return {}; }
-}
 
 function fmtDate(iso?: string | null) {
   if (!iso) return "—";
@@ -237,8 +235,9 @@ export default function ServiceRequestDetailPage() {
   const [newItemQty, setNewItemQty] = useState("1");
   const [addingItem, setAddingItem] = useState(false);
 
-  // Pre-invoice discount
+  // Pre-invoice discount & preview
   const [invoiceDiscount, setInvoiceDiscount] = useState("");
+  const [showInvoicePreview, setShowInvoicePreview] = useState(false);
 
   // Location type editing
   const [editingLocType, setEditingLocType] = useState(false);
@@ -275,8 +274,7 @@ export default function ServiceRequestDetailPage() {
       setSrObservations(obsData ?? []);
       const prices: Record<string, string> = {};
       for (const a of addonData ?? []) {
-        const { sellingPrice } = parseAddonNotes(a.notes);
-        prices[a.id] = sellingPrice != null ? String(sellingPrice) : "";
+        prices[a.id] = a.sellingPrice != null ? String(a.sellingPrice) : "";
       }
       setAddonPrices(prices);
       setLoading(false);
@@ -579,6 +577,116 @@ export default function ServiceRequestDetailPage() {
   if (loading) return <div className="p-8 text-slate-400 text-sm">Loading service request…</div>;
   if (!sr) return <div className="p-8 text-slate-400 text-sm">Service request not found.</div>;
 
+  // ── Invoice Preview Modal ─────────────────────────────────────────
+  function InvoicePreviewModal() {
+    const srData = sr!;
+    const discountAmt = Math.max(0, Number(invoiceDiscount) || 0);
+    const netTotal = Math.max(0, total - discountAmt);
+    const approvedAddons = addons.filter(a => a.status === "APPROVED");
+    return (
+      <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-xl w-full max-w-md flex flex-col max-h-[90vh]">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 shrink-0">
+            <h3 className="font-semibold text-slate-800 flex items-center gap-2">
+              <Receipt className="w-4 h-4 text-green-600" /> Invoice Preview
+            </h3>
+            <button onClick={() => setShowInvoicePreview(false)}><X className="w-4 h-4 text-slate-400" /></button>
+          </div>
+          <div className="overflow-y-auto flex-1 px-5 py-4 space-y-4">
+            {/* Service items */}
+            {srData.items.length > 0 && (
+              <div>
+                <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Services</p>
+                <div className="space-y-1">
+                  {srData.items.map(item => (
+                    <div key={item.id} className="flex justify-between text-sm">
+                      <span className="text-slate-700">{item.description}{item.quantity > 1 ? ` ×${item.quantity}` : ""}</span>
+                      <span className="font-medium text-slate-800 tabular-nums">₹{Number(item.total).toLocaleString("en-IN")}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {/* Inventory parts */}
+            {srData.inventoryUsages && srData.inventoryUsages.length > 0 && (
+              <div>
+                <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Parts (Inventory)</p>
+                <div className="space-y-1">
+                  {srData.inventoryUsages.map(u => (
+                    <div key={u.id} className="flex justify-between text-sm">
+                      <span className="text-slate-700">{u.inventoryItem.name}{u.quantity > 1 ? ` ×${u.quantity}` : ""}</span>
+                      <span className="font-medium text-slate-800 tabular-nums">₹{Number(u.total).toLocaleString("en-IN")}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {/* Packages */}
+            {appliedPackages.length > 0 && (
+              <div>
+                <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Service Packages</p>
+                <div className="space-y-1">
+                  {appliedPackages.map(pkg => (
+                    <div key={pkg.id} className="flex justify-between text-sm">
+                      <span className="text-slate-700">{pkg.packageName}</span>
+                      <span className="font-medium text-slate-800 tabular-nums">₹{Number(pkg.packagePrice).toLocaleString("en-IN")}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {/* Approved addons */}
+            {approvedAddons.length > 0 && (
+              <div>
+                <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Mechanic-Added Parts</p>
+                <div className="space-y-1">
+                  {approvedAddons.map(a => {
+                    const price = a.sellingPrice != null ? Number(a.sellingPrice) : Number(a.estimatedCost);
+                    const qty = a.quantity || 1;
+                    return (
+                      <div key={a.id} className="flex justify-between text-sm">
+                        <span className="text-slate-700">{a.description}{qty > 1 ? ` ×${qty}` : ""}</span>
+                        <span className="font-medium text-slate-800 tabular-nums">₹{(price * qty).toLocaleString("en-IN")}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            <div className="border-t border-slate-200 pt-3 space-y-2">
+              <div className="flex justify-between text-sm text-slate-600">
+                <span>Subtotal</span>
+                <span className="tabular-nums">₹{total.toLocaleString("en-IN")}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-slate-600 shrink-0">Discount (₹)</label>
+                <input type="number" min={0} max={total} value={invoiceDiscount}
+                  onChange={e => setInvoiceDiscount(e.target.value)} placeholder="0"
+                  className="flex-1 h-8 px-2.5 text-sm border border-slate-200 rounded-md focus:outline-none focus:border-brand-navy-400" />
+              </div>
+              <div className="flex justify-between text-base font-semibold text-slate-900">
+                <span>Total</span>
+                <span className="tabular-nums text-green-700">₹{netTotal.toLocaleString("en-IN")}</span>
+              </div>
+            </div>
+          </div>
+          <div className="px-5 py-4 border-t border-slate-100 flex gap-3 shrink-0">
+            <button onClick={() => setShowInvoicePreview(false)}
+              className="flex-1 h-10 border border-slate-200 text-sm text-slate-600 rounded-xl hover:bg-slate-50">
+              Cancel
+            </button>
+            <button onClick={() => { setShowInvoicePreview(false); raiseInvoice(); }}
+              disabled={raisingInvoice}
+              className="flex-1 h-10 bg-green-700 text-white text-sm font-medium rounded-xl hover:bg-green-800 disabled:opacity-60 flex items-center justify-center gap-1.5">
+              <Receipt className="w-4 h-4" />
+              {raisingInvoice ? "Raising…" : "Confirm & Raise Invoice"}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const next = nextStatus(sr.status);
   const displayStatus = STATUS_DISPLAY[sr.status] ?? sr.status.toLowerCase();
   const pendingAddons = addons.filter(a => a.status === "PENDING");
@@ -588,13 +696,14 @@ export default function ServiceRequestDetailPage() {
   const addonTotal = addons
     .filter(a => a.status === "APPROVED")
     .reduce((s, a) => {
-      const { sellingPrice, quantity = 1 } = parseAddonNotes(a.notes);
-      return s + (sellingPrice != null ? sellingPrice : Number(a.estimatedCost)) * quantity;
+      const price = a.sellingPrice != null ? Number(a.sellingPrice) : Number(a.estimatedCost);
+      return s + price * (a.quantity || 1);
     }, 0);
   const total = itemsTotal + invTotal + addonTotal;
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
+      {showInvoicePreview && <InvoicePreviewModal />}
       {/* Breadcrumb */}
       <div className="bg-white border-b border-slate-100 px-4 py-2 flex items-center gap-2 shrink-0">
         <button onClick={() => router.back()} className="w-7 h-7 flex items-center justify-center rounded text-slate-400 hover:bg-slate-100 transition-colors">
@@ -717,7 +826,7 @@ export default function ServiceRequestDetailPage() {
               </>
             )}
             {sr.status === "READY" && !raisedInvoiceId && (
-              <button onClick={raiseInvoice} disabled={raisingInvoice || closingBlocked}
+              <button onClick={() => setShowInvoicePreview(true)} disabled={raisingInvoice || closingBlocked}
                 className="flex items-center gap-1.5 text-xs font-medium bg-green-700 text-white hover:bg-green-800 px-3 py-1.5 rounded transition-colors disabled:opacity-60"
                 title={closingBlocked ? "Approve all mechanic-added parts first" : undefined}>
                 <Receipt className="w-3.5 h-3.5" />
@@ -975,28 +1084,11 @@ export default function ServiceRequestDetailPage() {
               </>
             )}
             {sr.status === "READY" && !raisedInvoiceId && (
-              <>
-                <div className="mt-3 flex items-center gap-2">
-                  <label className="text-[11px] text-slate-500 font-medium shrink-0">Discount (₹)</label>
-                  <input
-                    type="number" min={0} max={total}
-                    value={invoiceDiscount}
-                    onChange={e => setInvoiceDiscount(e.target.value)}
-                    placeholder="0"
-                    className="flex-1 h-8 px-2.5 text-sm border border-slate-200 rounded-md focus:outline-none focus:border-brand-navy-400"
-                  />
-                  {invoiceDiscount && Number(invoiceDiscount) > 0 && total > 0 && (
-                    <span className="text-[11px] text-green-700 font-medium shrink-0">
-                      → ₹{Math.max(0, total - Number(invoiceDiscount)).toLocaleString("en-IN")}
-                    </span>
-                  )}
-                </div>
-                <button onClick={raiseInvoice} disabled={raisingInvoice || closingBlocked}
-                  className="mt-2 w-full flex items-center justify-center gap-1.5 text-sm font-medium bg-green-700 text-white hover:bg-green-800 py-2 rounded-md transition-colors disabled:opacity-60">
-                  <Receipt className="w-4 h-4" />
-                  {raisingInvoice ? "Raising invoice…" : "Raise & Send Invoice"}
-                </button>
-              </>
+              <button onClick={() => setShowInvoicePreview(true)} disabled={raisingInvoice || closingBlocked}
+                className="mt-3 w-full flex items-center justify-center gap-1.5 text-sm font-medium bg-green-700 text-white hover:bg-green-800 py-2 rounded-md transition-colors disabled:opacity-60">
+                <Receipt className="w-4 h-4" />
+                {raisingInvoice ? "Raising invoice…" : "Preview & Raise Invoice"}
+              </button>
             )}
             {raisedInvoiceId && (
               <Link href={`/invoices/${raisedInvoiceId}`}
@@ -1165,7 +1257,8 @@ export default function ServiceRequestDetailPage() {
               </div>
               <div className="divide-y divide-slate-100">
                 {addons.map(addon => {
-                  const { sellingPrice, quantity = 1 } = parseAddonNotes(addon.notes);
+                  const sellingPrice = addon.sellingPrice != null ? Number(addon.sellingPrice) : null;
+                  const qty = addon.quantity || 1;
                   const isSaving = savingAddonId === addon.id;
                   return (
                     <div key={addon.id} className="px-4 py-3 space-y-2">
@@ -1174,7 +1267,7 @@ export default function ServiceRequestDetailPage() {
                           <p className="text-sm font-medium text-slate-800 truncate">{addon.description}</p>
                           <p className="text-[11px] text-slate-500 mt-0.5">
                             Purchase price: <span className="font-semibold text-slate-700">₹{Number(addon.estimatedCost).toLocaleString("en-IN")}</span>
-                            {quantity > 1 && <> · qty {quantity}</>}
+                            {qty > 1 && <> · qty {qty}</>}
                           </p>
                         </div>
                         <span className={`shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded border ${

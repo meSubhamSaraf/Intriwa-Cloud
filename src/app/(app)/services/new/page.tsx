@@ -47,6 +47,8 @@ interface CustomService {
   name: string;
   price: number;
   durationMinutes: number;
+  costPrice?: number;
+  mrp?: number;
 }
 
 interface Part {
@@ -505,6 +507,8 @@ function ServicesStep({ form, setForm, catalogue }: { form: FormState; setForm: 
   const [csName, setCsName] = useState("");
   const [csPrice, setCsPrice] = useState("");
   const [csDur, setCsDur] = useState("60");
+  const [csCostPrice, setCsCostPrice] = useState("");
+  const [csMrp, setCsMrp] = useState("");
   const [showPartForm, setShowPartForm] = useState(false);
   const [partName, setPartName] = useState("");
   const [partQty, setPartQty] = useState("1");
@@ -600,10 +604,17 @@ function ServicesStep({ form, setForm, catalogue }: { form: FormState; setForm: 
     if (!csName.trim() || !csPrice) { toast.error("Name and price are required"); return; }
     const newCustoms = [
       ...form.customServices,
-      { id: `cs_${Date.now()}`, name: csName.trim(), price: Number(csPrice), durationMinutes: Number(csDur) || 60 },
+      {
+        id: `cs_${Date.now()}`,
+        name: csName.trim(),
+        price: Number(csPrice),
+        durationMinutes: Number(csDur) || 60,
+        costPrice: csCostPrice ? Number(csCostPrice) : undefined,
+        mrp: csMrp ? Number(csMrp) : undefined,
+      },
     ];
     setForm({ ...form, customServices: newCustoms, durationMinutes: calcDuration(form.selectedServiceIds, newCustoms) });
-    setCsName(""); setCsPrice(""); setCsDur("60"); setShowCSForm(false);
+    setCsName(""); setCsPrice(""); setCsDur("60"); setCsCostPrice(""); setCsMrp(""); setShowCSForm(false);
   }
 
   function removeCustomService(id: string) {
@@ -729,17 +740,25 @@ function ServicesStep({ form, setForm, catalogue }: { form: FormState; setForm: 
             />
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="block text-xs text-slate-500 mb-1">Price (₹)</label>
+                <label className="block text-xs text-slate-500 mb-1">Selling price (₹) *</label>
                 <input type="number" min="0" placeholder="0" value={csPrice} onChange={(e) => setCsPrice(e.target.value)} className={inputCls} />
               </div>
               <div>
                 <label className="block text-xs text-slate-500 mb-1">Duration (min)</label>
                 <input type="number" min="15" step="15" placeholder="60" value={csDur} onChange={(e) => setCsDur(e.target.value)} className={inputCls} />
               </div>
+              <div>
+                <label className="block text-xs text-slate-500 mb-1">Cost price (₹)</label>
+                <input type="number" min="0" placeholder="optional" value={csCostPrice} onChange={(e) => setCsCostPrice(e.target.value)} className={inputCls} />
+              </div>
+              <div>
+                <label className="block text-xs text-slate-500 mb-1">MRP (₹)</label>
+                <input type="number" min="0" placeholder="optional" value={csMrp} onChange={(e) => setCsMrp(e.target.value)} className={inputCls} />
+              </div>
             </div>
             <div className="flex gap-2">
               <button onClick={addCustomService} className="px-3 py-1.5 text-xs font-medium bg-brand-navy-800 text-white rounded-md hover:bg-brand-navy-700 transition-colors">Add</button>
-              <button onClick={() => setShowCSForm(false)} className="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-700">Cancel</button>
+              <button onClick={() => { setShowCSForm(false); setCsCostPrice(""); setCsMrp(""); }} className="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-700">Cancel</button>
             </div>
           </div>
         ) : (
@@ -1596,6 +1615,8 @@ function NewServiceRequestContent() {
               description: cs.name,
               unitPrice: cs.price,
               quantity: 1,
+              ...(cs.costPrice != null ? { costPrice: cs.costPrice } : {}),
+              ...(cs.mrp       != null ? { mrp:       cs.mrp       } : {}),
             }),
           })
         );

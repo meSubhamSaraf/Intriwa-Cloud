@@ -16,6 +16,8 @@ export const POST = withAuthParams<{ id: string }>(async (req, _ctx, { id }) => 
       quantity,
       unitPrice,
       total:              unitPrice * quantity,
+      costPrice:          body.costPrice != null ? Number(body.costPrice) : null,
+      mrp:                body.mrp        != null ? Number(body.mrp)        : null,
       assignedMechanicId: body.assignedMechanicId || null,
       isService:          body.isService !== false, // default true; false for physical parts
     },

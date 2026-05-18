@@ -548,14 +548,16 @@ model ServiceRequest {
 // Each item can be assigned to a specific mechanic for payout calculation
 // isService=true → labour/service (counts toward payout); false → physical part (excluded from payout)
 model ServiceItem {
-  id                 String  @id @default(cuid())
+  id                 String   @id @default(cuid())
   serviceRequestId   String
-  assignedMechanicId String? // which mechanic handles this specific item
+  assignedMechanicId String?  // which mechanic handles this specific item
   description        String
-  quantity           Int     @default(1)
-  unitPrice          Decimal @db.Decimal(10, 2)
-  total              Decimal @db.Decimal(10, 2)
-  isService          Boolean @default(true) // false for physical parts added at SR creation
+  quantity           Int      @default(1)
+  unitPrice          Decimal  @db.Decimal(10, 2)
+  total              Decimal  @db.Decimal(10, 2)
+  costPrice          Decimal? @db.Decimal(10, 2) // garage's cost/purchase price
+  mrp                Decimal? @db.Decimal(10, 2) // manufacturer recommended price
+  isService          Boolean  @default(true) // false for physical parts added at SR creation
 
   serviceRequest   ServiceRequest @relation(fields: [serviceRequestId], references: [id])
   assignedMechanic Mechanic?      @relation(fields: [assignedMechanicId], references: [id])
@@ -787,6 +789,7 @@ model CustomerObservation {
   status        ObservationStatus   @default(NEW)
   convertedSrId String?             // SR that was booked as a result
   followUpNote  String?             // JSON: {"d":"ISO-date","n":"note"} when follow-up is set
+  photoUrl      String?             // photo evidence URL (Supabase Storage)
   createdAt     DateTime            @default(now())
   updatedAt     DateTime            @updatedAt
 
