@@ -13,6 +13,7 @@ type JobBreakdown = {
   invoiceAmount: number;
   partsRevenue: number;
   partsCogs: number;
+  packagePartsCost: number;
   aftermarketCost: number;
   fuelAllowance: number;
   mechanicPayout: number;
@@ -264,6 +265,7 @@ function JobBreakdownTable({ jobs }: { jobs: JobBreakdown[] }) {
     .slice(0, 10);
 
   const showAftermarket = sorted.some((j) => j.aftermarketCost > 0);
+  const showPkgParts = sorted.some((j) => (j.packagePartsCost ?? 0) > 0);
 
   if (sorted.length === 0) {
     return (
@@ -273,7 +275,7 @@ function JobBreakdownTable({ jobs }: { jobs: JobBreakdown[] }) {
     );
   }
 
-  const headers = ["SR#", "Customer", "Invoice", "Parts COGS", ...(showAftermarket ? ["Aftermarket"] : []), "Fuel", "Mechanic", "Margin"];
+  const headers = ["SR#", "Customer", "Invoice", "Parts COGS", ...(showPkgParts ? ["Pkg Parts"] : []), ...(showAftermarket ? ["Aftermarket"] : []), "Fuel", "Mechanic", "Margin"];
 
   return (
     <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
@@ -303,6 +305,9 @@ function JobBreakdownTable({ jobs }: { jobs: JobBreakdown[] }) {
                   <td className="px-3 py-2.5 text-[12px] text-slate-700 max-w-[120px] truncate">{job.customerName}</td>
                   <td className="px-3 py-2.5 text-[12px] font-medium tabular-nums text-slate-800 whitespace-nowrap">{fmtRupee(job.invoiceAmount)}</td>
                   <td className="px-3 py-2.5 text-[12px] tabular-nums text-slate-500 whitespace-nowrap">{fmtRupee(job.partsCogs)}</td>
+                  {showPkgParts && (
+                    <td className="px-3 py-2.5 text-[12px] tabular-nums text-slate-500 whitespace-nowrap">{fmtRupee(job.packagePartsCost ?? 0)}</td>
+                  )}
                   {showAftermarket && (
                     <td className="px-3 py-2.5 text-[12px] tabular-nums text-slate-500 whitespace-nowrap">{fmtRupee(job.aftermarketCost)}</td>
                   )}

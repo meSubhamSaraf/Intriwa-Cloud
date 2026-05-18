@@ -192,10 +192,11 @@ export const GET = withAuth(async (req, { garageId }) => {
       },
       inventoryUsages: { select: { quantity: true, costPrice: true, unitPrice: true, total: true } },
       addOns: { where: { status: "APPROVED" }, select: { estimatedCost: true } },
+      items: { select: { total: true, isService: true } },
     },
   });
 
-  // Per-SR mechanic payouts (all employment types)
+  // Per-SR mechanic payouts (all employment types, approved/paid)
   const srPayoutsRaw = await prisma.mechanicPayoutItem.findMany({
     where: {
       serviceRequestId: { in: closedSRs.map((sr) => sr.id) },
@@ -211,6 +212,16 @@ export const GET = withAuth(async (req, { garageId }) => {
       (payoutBySr[row.serviceRequestId] ?? 0) + Number(row.amount);
   }
 
+  // Fetch mechanic payout config so we can estimate commission when no formal payout exists
+  const mechanicIds = [...new Set(closedSRs.map(sr => sr.mechanicId).filter(Boolean))] as string[];
+  const mechanicPayoutConfigs = mechanicIds.length > 0
+    ? await prisma.mechanic.findMany({
+        where: { id: { in: mechanicIds } },
+        select: { id: true, payoutConfigType: true, payoutRate: true },
+      })
+    : [];
+  const mechConfigById = new Map(mechanicPayoutConfigs.map(m => [m.id, m]));
+
   const jobBreakdown = closedSRs.map((sr) => {
     const invoiceAmount    = sr.invoices.reduce((s, inv) => s + Number(inv.total), 0);
     const srPartsRevenue   = sr.inventoryUsages.reduce((s, u) => s + Number(u.total), 0);
@@ -220,7 +231,22 @@ export const GET = withAuth(async (req, { garageId }) => {
     }, 0);
     const srAftermarket    = sr.addOns.reduce((s, a) => s + Number(a.estimatedCost), 0);
     const srFuel           = Number(sr.fuelAllowance ?? 0);
-    const srPayout         = payoutBySr[sr.id] ?? 0;
+    let srPayout           = payoutBySr[sr.id] ?? 0;
+
+    // If no formal payout record, estimate from mechanic's rate applied to service items
+    if (srPayout === 0 && sr.mechanicId) {
+      const mConfig = mechConfigById.get(sr.mechanicId);
+      if (mConfig) {
+        const serviceItems = sr.items.filter(i => i.isService);
+        if (mConfig.payoutConfigType === "PERCENT_OF_ITEM") {
+          const serviceTotal = serviceItems.reduce((s, i) => s + Number(i.total), 0);
+          srPayout = serviceTotal * Number(mConfig.payoutRate ?? 0);
+        } else if (mConfig.payoutConfigType === "FIXED_PER_ITEM") {
+          srPayout = Number(mConfig.payoutRate ?? 0) * serviceItems.length;
+        }
+      }
+    }
+
     const srPkgPartsCost   = packageCostBySr[sr.id] ?? 0;
     const margin           = invoiceAmount - srPartsCogs - srAftermarket - srFuel - srPayout - srPkgPartsCost;
 

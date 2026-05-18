@@ -56,6 +56,8 @@ interface Part {
   name: string;
   qty: number;
   unitPrice: number;
+  costPrice?: number;
+  mrp?: number;
 }
 
 type ServicePackageOption = {
@@ -513,6 +515,8 @@ function ServicesStep({ form, setForm, catalogue }: { form: FormState; setForm: 
   const [partName, setPartName] = useState("");
   const [partQty, setPartQty] = useState("1");
   const [partPrice, setPartPrice] = useState("");
+  const [partCostPrice, setPartCostPrice] = useState("");
+  const [partMrp, setPartMrp] = useState("");
   const [packages, setPackages] = useState<ServicePackageOption[]>([]);
   const [pkgsLoaded, setPkgsLoaded] = useState(false);
   const [inventoryItems, setInventoryItems] = useState<InventoryItemOption[]>([]);
@@ -586,10 +590,12 @@ function ServicesStep({ form, setForm, catalogue }: { form: FormState; setForm: 
     );
   }, [serviceSearch, activeCatalogue]);
 
-  function calcDuration(ids: string[], customs: CustomService[]): number {
+  function calcDuration(ids: string[], customs: CustomService[], pkgIds?: string[]): number {
+    const effectivePkgIds = pkgIds ?? form.selectedPackageIds;
     const mins =
       activeCatalogue.filter((s) => ids.includes(s.id)).reduce((s, i) => s + i.durationMinutes, 0) +
-      customs.reduce((s, c) => s + c.durationMinutes, 0);
+      customs.reduce((s, c) => s + c.durationMinutes, 0) +
+      packages.filter(p => effectivePkgIds.includes(p.id)).reduce((s, p) => s + p.durationMinutes, 0);
     const base = mins || 60;
     return form.serviceType === "doorstep" ? base + form.travelTimeMinutes : base;
   }
@@ -628,10 +634,17 @@ function ServicesStep({ form, setForm, catalogue }: { form: FormState; setForm: 
       ...form,
       parts: [
         ...form.parts,
-        { id: `pt_${Date.now()}`, name: partName.trim(), qty: Number(partQty) || 1, unitPrice: Number(partPrice) },
+        {
+          id: `pt_${Date.now()}`,
+          name: partName.trim(),
+          qty: Number(partQty) || 1,
+          unitPrice: Number(partPrice),
+          ...(partCostPrice ? { costPrice: Number(partCostPrice) } : {}),
+          ...(partMrp       ? { mrp:       Number(partMrp)       } : {}),
+        },
       ],
     });
-    setPartName(""); setPartQty("1"); setPartPrice(""); setShowPartForm(false);
+    setPartName(""); setPartQty("1"); setPartPrice(""); setPartCostPrice(""); setPartMrp(""); setShowPartForm(false);
   }
 
   function removePart(id: string) {
@@ -805,13 +818,21 @@ function ServicesStep({ form, setForm, catalogue }: { form: FormState; setForm: 
                 <input type="number" min="1" placeholder="1" value={partQty} onChange={(e) => setPartQty(e.target.value)} className={inputCls} />
               </div>
               <div>
-                <label className="block text-xs text-slate-500 mb-1">Unit price (₹)</label>
+                <label className="block text-xs text-slate-500 mb-1">Selling price (₹) *</label>
                 <input type="number" min="0" placeholder="0" value={partPrice} onChange={(e) => setPartPrice(e.target.value)} className={inputCls} />
+              </div>
+              <div>
+                <label className="block text-xs text-slate-500 mb-1">Cost price (₹)</label>
+                <input type="number" min="0" placeholder="optional" value={partCostPrice} onChange={(e) => setPartCostPrice(e.target.value)} className={inputCls} />
+              </div>
+              <div>
+                <label className="block text-xs text-slate-500 mb-1">MRP (₹)</label>
+                <input type="number" min="0" placeholder="optional" value={partMrp} onChange={(e) => setPartMrp(e.target.value)} className={inputCls} />
               </div>
             </div>
             <div className="flex gap-2">
               <button onClick={addPart} className="px-3 py-1.5 text-xs font-medium bg-brand-navy-800 text-white rounded-md hover:bg-brand-navy-700 transition-colors">Add</button>
-              <button onClick={() => setShowPartForm(false)} className="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-700">Cancel</button>
+              <button onClick={() => { setShowPartForm(false); setPartCostPrice(""); setPartMrp(""); }} className="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-700">Cancel</button>
             </div>
           </div>
         ) : (
@@ -908,7 +929,12 @@ function ServicesStep({ form, setForm, catalogue }: { form: FormState; setForm: 
                     checked={selected}
                     onChange={() => {
                       const ids = form.selectedPackageIds;
-                      setForm({ ...form, selectedPackageIds: selected ? ids.filter(i => i !== pkg.id) : [...ids, pkg.id] });
+                      const newPkgIds = selected ? ids.filter(i => i !== pkg.id) : [...ids, pkg.id];
+                      setForm({
+                        ...form,
+                        selectedPackageIds: newPkgIds,
+                        durationMinutes: calcDuration(form.selectedServiceIds, form.customServices, newPkgIds),
+                      });
                     }}
                     className="text-brand-navy-700 rounded w-4 h-4 flex-shrink-0 mt-0.5"
                   />
@@ -1266,8 +1292,10 @@ function ReviewStep({ form, setForm, catalogue, realMechanics, packages }: { for
   const invPartsTotal = form.selectedInventoryParts.reduce((sum, p) => sum + p.qty * p.unitPrice, 0);
   const selectedPkgs = packages.filter(p => form.selectedPackageIds.includes(p.id));
   const pkgTotal = selectedPkgs.reduce((s, p) => s + Number(p.packagePrice), 0);
+  const pkgMinutes = selectedPkgs.reduce((sum, p) => sum + p.durationMinutes, 0);
+  const travelMinutes = form.serviceType === "doorstep" ? form.travelTimeMinutes : 0;
   const totalPrice = catalogTotal + customTotal + partsTotal + invPartsTotal + pkgTotal;
-  const totalMinutes = catalogMinutes + customMinutes;
+  const totalMinutes = catalogMinutes + customMinutes + pkgMinutes + travelMinutes;
   const hasAnything = selectedServices.length > 0 || form.customServices.length > 0 || form.parts.length > 0 || form.selectedInventoryParts.length > 0 || selectedPkgs.length > 0;
 
   function fmtSchedule() {
@@ -1631,6 +1659,8 @@ function NewServiceRequestContent() {
               unitPrice: part.unitPrice,
               quantity: part.qty,
               isService: false,
+              ...(part.costPrice != null ? { costPrice: part.costPrice } : {}),
+              ...(part.mrp       != null ? { mrp:       part.mrp       } : {}),
             }),
           })
         );

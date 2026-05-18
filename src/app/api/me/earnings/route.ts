@@ -40,9 +40,10 @@ export const GET = withAuth(async (_req, { garageId, profile }) => {
   const accrualStart = lastPayout ? new Date(lastPayout.periodEnd) : new Date(0);
 
   // Items already included in a paid/approved payout — exclude them
+  // Only APPROVED/PAID payouts count; PENDING or CANCELLED should not block accrual
   const paidItemIds = (
     await prisma.mechanicPayoutItem.findMany({
-      where: { payout: { mechanicId: mechanic.id } },
+      where: { payout: { mechanicId: mechanic.id, status: { in: ["APPROVED", "PAID"] } } },
       select: { serviceItemId: true },
     })
   ).map((r) => r.serviceItemId).filter((x): x is string => x !== null);
@@ -136,6 +137,7 @@ export const GET = withAuth(async (_req, { garageId, profile }) => {
       },
     },
     include: {
+      items: { select: { inventoryItemId: true, mrpPrice: true, quantity: true } },
       sr: {
         include: {
           customer: { select: { name: true } },
@@ -166,8 +168,13 @@ export const GET = withAuth(async (_req, { garageId, profile }) => {
     }
     const row = bySR.get(key)!;
     const pkgPrice = Number(pkg.packagePrice);
+    // Exclude inventory item cost from the base on which mechanic earns commission
+    const inventoryItemsCost = pkg.items
+      .filter(i => i.inventoryItemId != null)
+      .reduce((s, i) => s + Number(i.mrpPrice) * i.quantity, 0);
+    const laborBase = Math.max(0, pkgPrice - inventoryItemsCost);
     const amt = mechanic.payoutConfigType === "PERCENT_OF_ITEM"
-      ? pkgPrice * Number(mechanic.payoutRate ?? 0)
+      ? laborBase * Number(mechanic.payoutRate ?? 0)
       : mechanic.payoutConfigType === "FIXED_PER_ITEM"
       ? Number(mechanic.payoutRate ?? 0)
       : 0;

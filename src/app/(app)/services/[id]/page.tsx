@@ -26,6 +26,7 @@ type SRItem = {
   unitPrice: number | null;
   total: number;
   quantity: number;
+  isService: boolean;
   assignedMechanicId: string | null;
   assignedMechanic?: { id: string; name: string } | null;
 };
@@ -601,12 +602,26 @@ export default function ServiceRequestDetailPage() {
             <button onClick={() => setShowInvoicePreview(false)}><X className="w-4 h-4 text-slate-400" /></button>
           </div>
           <div className="overflow-y-auto flex-1 px-5 py-4 space-y-4">
-            {/* Service items */}
-            {srData.items.length > 0 && (
+            {/* Service items (isService: true) */}
+            {srData.items.filter(i => i.isService).length > 0 && (
               <div>
                 <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Services</p>
                 <div className="space-y-1">
-                  {srData.items.map(item => (
+                  {srData.items.filter(i => i.isService).map(item => (
+                    <div key={item.id} className="flex justify-between text-sm">
+                      <span className="text-slate-700">{item.description}{item.quantity > 1 ? ` ×${item.quantity}` : ""}</span>
+                      <span className="font-medium text-slate-800 tabular-nums">₹{Number(item.total).toLocaleString("en-IN")}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {/* Custom parts (isService: false) */}
+            {srData.items.filter(i => !i.isService).length > 0 && (
+              <div>
+                <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Parts & Products</p>
+                <div className="space-y-1">
+                  {srData.items.filter(i => !i.isService).map(item => (
                     <div key={item.id} className="flex justify-between text-sm">
                       <span className="text-slate-700">{item.description}{item.quantity > 1 ? ` ×${item.quantity}` : ""}</span>
                       <span className="font-medium text-slate-800 tabular-nums">₹{Number(item.total).toLocaleString("en-IN")}</span>
