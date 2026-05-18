@@ -85,7 +85,9 @@ export const POST = withAuthParams<{ id: string }>(async (req, { garageId, userI
       });
     }
 
-    // 3. Create a ServiceItem so the package total rolls up into invoice totals
+    // 3. Create a ServiceItem so the package total rolls up into invoice totals.
+    // isPackageItem: true signals the earnings route to skip this item (the
+    // SRServicePackage loop handles commission on the labor-only base instead).
     await tx.serviceItem.create({
       data: {
         serviceRequestId: srId,
@@ -94,6 +96,7 @@ export const POST = withAuthParams<{ id: string }>(async (req, { garageId, userI
         unitPrice: pkg.packagePrice,
         total: pkg.packagePrice,
         isService: true,
+        isPackageItem: true,
       },
     });
 

@@ -558,6 +558,7 @@ model ServiceItem {
   costPrice          Decimal? @db.Decimal(10, 2) // garage's cost/purchase price
   mrp                Decimal? @db.Decimal(10, 2) // manufacturer recommended price
   isService          Boolean  @default(true) // false for physical parts added at SR creation
+  isPackageItem      Boolean  @default(false) // true when created by apply-package; commission handled via SRServicePackage
 
   serviceRequest   ServiceRequest @relation(fields: [serviceRequestId], references: [id])
   assignedMechanic Mechanic?      @relation(fields: [assignedMechanicId], references: [id])

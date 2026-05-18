@@ -50,9 +50,11 @@ export const GET = withAuth(async (_req, { garageId, profile }) => {
 
   // Service items for READY (completed, not yet invoiced) and CLOSED SRs.
   // isService: true — physical parts (AddOns) never count toward mechanic earnings.
+  // isPackageItem: false — package items are handled by the SRServicePackage loop below.
   const accruedItems = await prisma.serviceItem.findMany({
     where: {
       isService: true,
+      isPackageItem: false,
       AND: [
         {
           OR: [
@@ -120,7 +122,7 @@ export const GET = withAuth(async (_req, { garageId, profile }) => {
   // SRs where a package was applied and the SR's primary mechanic is this mechanic
   const paidSRIds = new Set(
     (await prisma.mechanicPayoutItem.findMany({
-      where: { payout: { mechanicId: mechanic.id }, serviceItemId: null },
+      where: { payout: { mechanicId: mechanic.id, status: { in: ["APPROVED", "PAID"] } }, serviceItemId: null },
       select: { serviceRequestId: true },
     })).map((r) => r.serviceRequestId).filter((x): x is string => x !== null)
   );
