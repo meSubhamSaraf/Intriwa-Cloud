@@ -304,7 +304,30 @@ function PackageModal({
 
             <div className="space-y-2">
               {items.map((item, idx) => (
-                <div key={idx} className="bg-slate-50 rounded-md px-3 py-2 space-y-1.5">
+                <div key={idx} className="bg-slate-50 rounded-md px-3 py-2 space-y-2 border border-slate-200">
+                  {/* Labour / Parts toggle — always visible at top of each item */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-semibold text-slate-500 w-28 shrink-0">Item Type</span>
+                    <div className="flex rounded-lg overflow-hidden border border-slate-300 text-[11px] font-semibold">
+                      <button
+                        type="button"
+                        onClick={() => updateItem(idx, "isLabour", true)}
+                        className={`px-3 py-1.5 transition-colors ${item.isLabour ? "bg-green-600 text-white" : "bg-white text-slate-400 hover:bg-slate-100"}`}
+                      >
+                        Labour
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updateItem(idx, "isLabour", false)}
+                        className={`px-3 py-1.5 border-l border-slate-300 transition-colors ${!item.isLabour ? "bg-slate-600 text-white" : "bg-white text-slate-400 hover:bg-slate-100"}`}
+                      >
+                        Parts
+                      </button>
+                    </div>
+                    <span className={`text-[10px] font-medium ${item.isLabour ? "text-green-600" : "text-slate-400"}`}>
+                      {item.isLabour ? "counts toward mechanic commission" : "excluded from commission"}
+                    </span>
+                  </div>
                   {/* Inventory dropdown */}
                   <div className="flex items-center gap-2">
                     <label className="text-[10px] text-slate-400 shrink-0 w-28">From Inventory</label>
@@ -383,27 +406,6 @@ function PackageModal({
                     >
                       <X className="w-3.5 h-3.5" />
                     </button>
-                  </div>
-                  {/* Labour / Parts toggle */}
-                  <div className="flex items-center gap-2 pt-0.5">
-                    <span className="text-[10px] text-slate-400 w-28 shrink-0">Type</span>
-                    <div className="flex rounded overflow-hidden border border-slate-200 text-[10px] font-medium">
-                      <button
-                        type="button"
-                        onClick={() => updateItem(idx, "isLabour", true)}
-                        className={`px-2.5 py-1 transition-colors ${item.isLabour ? "bg-brand-navy-800 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}
-                      >
-                        Labour
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => updateItem(idx, "isLabour", false)}
-                        className={`px-2.5 py-1 border-l border-slate-200 transition-colors ${!item.isLabour ? "bg-brand-navy-800 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}
-                      >
-                        Parts
-                      </button>
-                    </div>
-                    {item.isLabour && <span className="text-[10px] text-green-600 font-medium">counts toward mechanic commission</span>}
                   </div>
                 </div>
               ))}
