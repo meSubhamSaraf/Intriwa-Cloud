@@ -139,7 +139,7 @@ export const GET = withAuth(async (_req, { garageId, profile }) => {
       },
     },
     include: {
-      items: { select: { inventoryItemId: true, mrpPrice: true, quantity: true } },
+      items: { select: { isLabour: true, inventoryItemId: true, mrpPrice: true, quantity: true } },
       sr: {
         include: {
           customer: { select: { name: true } },
@@ -170,11 +170,12 @@ export const GET = withAuth(async (_req, { garageId, profile }) => {
     }
     const row = bySR.get(key)!;
     const pkgPrice = Number(pkg.packagePrice);
-    // Exclude inventory item cost from the base on which mechanic earns commission
-    const inventoryItemsCost = pkg.items
-      .filter(i => i.inventoryItemId != null)
-      .reduce((s, i) => s + Number(i.mrpPrice) * i.quantity, 0);
-    const laborBase = Math.max(0, pkgPrice - inventoryItemsCost);
+    // Commission base = sum of mrpPrice for items explicitly marked as labour.
+    // If no items are marked yet (legacy), fall back to pkgPrice minus inventory MRP.
+    const labourItems = pkg.items.filter(i => i.isLabour);
+    const laborBase = labourItems.length > 0
+      ? labourItems.reduce((s, i) => s + Number(i.mrpPrice) * i.quantity, 0)
+      : Math.max(0, pkgPrice - pkg.items.filter(i => i.inventoryItemId != null).reduce((s, i) => s + Number(i.mrpPrice) * i.quantity, 0));
     const amt = mechanic.payoutConfigType === "PERCENT_OF_ITEM"
       ? laborBase * Number(mechanic.payoutRate ?? 0)
       : mechanic.payoutConfigType === "FIXED_PER_ITEM"

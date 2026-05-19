@@ -55,7 +55,7 @@ export class ServiceRequestService {
         },
         addOns: true,
         timelineEvents: { orderBy: { createdAt: "asc" } },
-        inventoryUsages: { include: { inventoryItem: true } },
+        inventoryUsages: { include: { inventoryItem: { select: { id: true, name: true, mrp: true } } } },
         invoices: true,
         srPackages: { include: { items: true } },
       },
@@ -66,6 +66,7 @@ export class ServiceRequestService {
       items: sr.items.map(i => ({
         ...i,
         unitPrice: Number(i.unitPrice),
+        mrp: i.mrp != null ? Number(i.mrp) : null,
         total: Number(i.total),
       })),
       inventoryUsages: sr.inventoryUsages.map(u => ({
@@ -73,6 +74,10 @@ export class ServiceRequestService {
         quantity: Number(u.quantity),
         unitPrice: Number(u.unitPrice),
         total: Number(u.total),
+        inventoryItem: {
+          ...u.inventoryItem,
+          mrp: u.inventoryItem.mrp != null ? Number(u.inventoryItem.mrp) : null,
+        },
       })),
     };
   }

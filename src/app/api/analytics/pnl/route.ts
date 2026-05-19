@@ -95,7 +95,7 @@ export const GET = withAuth(async (req, { garageId }) => {
     });
     const costById = new Map(invItems.map((i) => [i.id, Number(i.costPrice ?? 0)]));
     for (const p of packageItems) {
-      const cost = (costById.get(p.inventoryItemId!) ?? Number(p.mrpPrice)) * p.quantity;
+      const cost = (costById.get(p.inventoryItemId!) ?? 0) * p.quantity;
       packagePartsCost += cost;
       const srId = p.srPackage.srId;
       packageCostBySr[srId] = (packageCostBySr[srId] ?? 0) + cost;

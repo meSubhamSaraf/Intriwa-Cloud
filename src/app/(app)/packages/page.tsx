@@ -15,6 +15,7 @@ type PackageItem = {
   mrpPrice: number;
   quantity: number;
   inventoryItemId?: string | null;
+  isLabour: boolean;
 };
 
 type InvDropdownItem = {
@@ -47,7 +48,7 @@ function calcMrpTotal(items: PackageItem[]) {
 // ── Empty item factory ─────────────────────────────────────────────
 
 function emptyItem(): PackageItem {
-  return { description: "", mrpPrice: 0, quantity: 1 };
+  return { description: "", mrpPrice: 0, quantity: 1, isLabour: false };
 }
 
 // ── Package card ───────────────────────────────────────────────────
@@ -96,6 +97,9 @@ function PackageCard({
             {pkg.items.map((item, i) => (
               <div key={item.id ?? i} className="flex items-center justify-between text-[12px]">
                 <span className="text-slate-700 flex-1 min-w-0 truncate">{item.description}</span>
+                <span className={`ml-2 shrink-0 text-[10px] font-medium px-1 py-0.5 rounded ${item.isLabour ? "bg-green-50 text-green-700" : "bg-slate-100 text-slate-500"}`}>
+                  {item.isLabour ? "Labour" : "Parts"}
+                </span>
                 <span className="text-slate-400 ml-2 shrink-0">×{item.quantity}</span>
                 <span className="text-slate-600 ml-3 shrink-0 tabular-nums">{fmtRupee(Number(item.mrpPrice))}</span>
               </div>
@@ -151,7 +155,7 @@ function PackageModal({
     initial ? String(Number(initial.packagePrice)) : ""
   );
   const [items, setItems] = useState<PackageItem[]>(
-    initial?.items.length ? initial.items.map(i => ({ ...i })) : [emptyItem()]
+    initial?.items.length ? initial.items.map(i => ({ ...i, isLabour: (i as PackageItem).isLabour ?? false })) : [emptyItem()]
   );
   const [saving, setSaving] = useState(false);
   const [invItems, setInvItems] = useState<InvDropdownItem[]>([]);
@@ -167,7 +171,7 @@ function PackageModal({
   const pkgPriceNum = Number(packagePrice) || 0;
   const savings = mrpTotal - pkgPriceNum;
 
-  function updateItem(idx: number, field: keyof PackageItem, value: string | number) {
+  function updateItem(idx: number, field: keyof PackageItem, value: string | number | boolean) {
     setItems(prev => prev.map((item, i) => i === idx ? { ...item, [field]: value } : item));
   }
 
@@ -195,6 +199,7 @@ function PackageModal({
           mrpPrice: Number(i.mrpPrice),
           quantity: Number(i.quantity) || 1,
           inventoryItemId: i.inventoryItemId ?? null,
+          isLabour: i.isLabour,
         })),
       };
 
@@ -378,6 +383,27 @@ function PackageModal({
                     >
                       <X className="w-3.5 h-3.5" />
                     </button>
+                  </div>
+                  {/* Labour / Parts toggle */}
+                  <div className="flex items-center gap-2 pt-0.5">
+                    <span className="text-[10px] text-slate-400 w-28 shrink-0">Type</span>
+                    <div className="flex rounded overflow-hidden border border-slate-200 text-[10px] font-medium">
+                      <button
+                        type="button"
+                        onClick={() => updateItem(idx, "isLabour", true)}
+                        className={`px-2.5 py-1 transition-colors ${item.isLabour ? "bg-brand-navy-800 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}
+                      >
+                        Labour
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updateItem(idx, "isLabour", false)}
+                        className={`px-2.5 py-1 border-l border-slate-200 transition-colors ${!item.isLabour ? "bg-brand-navy-800 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}
+                      >
+                        Parts
+                      </button>
+                    </div>
+                    {item.isLabour && <span className="text-[10px] text-green-600 font-medium">counts toward mechanic commission</span>}
                   </div>
                 </div>
               ))}

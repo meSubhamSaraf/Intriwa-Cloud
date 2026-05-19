@@ -46,6 +46,7 @@ export const POST = withAuth(async (req, { garageId }) => {
           mrpPrice: item.mrpPrice,
           quantity: item.quantity ?? 1,
           inventoryItemId: item.inventoryItemId ?? null,
+          isLabour: (item as { isLabour?: boolean }).isLabour ?? false,
         })),
       },
     },

@@ -893,6 +893,7 @@ model ServicePackageItem {
   mrpPrice        Decimal  @db.Decimal(10, 2)
   quantity        Int      @default(1)
   inventoryItemId String?
+  isLabour        Boolean  @default(false) // true = labour/service; false = parts (excluded from mechanic commission)
 
   package       ServicePackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
   inventoryItem InventoryItem? @relation(fields: [inventoryItemId], references: [id])
@@ -919,6 +920,7 @@ model SRServicePackageItem {
   mrpPrice        Decimal @db.Decimal(10, 2)
   quantity        Int     @default(1)
   inventoryItemId String?
+  isLabour        Boolean @default(false) // snapshot of ServicePackageItem.isLabour at time of applying
 
   srPackage SRServicePackage @relation(fields: [srPackageId], references: [id], onDelete: Cascade)
 }

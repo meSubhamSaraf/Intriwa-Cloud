@@ -24,6 +24,7 @@ type SRItem = {
   id: string;
   description: string;
   unitPrice: number | null;
+  mrp: number | null;
   total: number;
   quantity: number;
   isService: boolean;
@@ -37,7 +38,7 @@ type SRInventoryUsage = {
   quantity: number;
   unitPrice: number;
   total: number;
-  inventoryItem: { id: string; name: string };
+  inventoryItem: { id: string; name: string; mrp: number | null };
 };
 
 type TimelineEvent = {
@@ -606,11 +607,16 @@ export default function ServiceRequestDetailPage() {
             {srData.items.filter(i => i.isService).length > 0 && (
               <div>
                 <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Services</p>
-                <div className="space-y-1">
+                <div className="space-y-1.5">
                   {srData.items.filter(i => i.isService).map(item => (
-                    <div key={item.id} className="flex justify-between text-sm">
+                    <div key={item.id} className="flex items-start justify-between gap-2 text-sm">
                       <span className="text-slate-700">{item.description}{item.quantity > 1 ? ` ×${item.quantity}` : ""}</span>
-                      <span className="font-medium text-slate-800 tabular-nums">₹{Number(item.total).toLocaleString("en-IN")}</span>
+                      <div className="text-right shrink-0">
+                        {item.mrp != null && Number(item.mrp) > Number(item.total) && (
+                          <p className="text-[10px] text-slate-400 line-through tabular-nums">₹{Number(item.mrp).toLocaleString("en-IN")}</p>
+                        )}
+                        <span className="font-medium text-slate-800 tabular-nums">₹{Number(item.total).toLocaleString("en-IN")}</span>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -620,11 +626,16 @@ export default function ServiceRequestDetailPage() {
             {srData.items.filter(i => !i.isService).length > 0 && (
               <div>
                 <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Parts & Products</p>
-                <div className="space-y-1">
+                <div className="space-y-1.5">
                   {srData.items.filter(i => !i.isService).map(item => (
-                    <div key={item.id} className="flex justify-between text-sm">
+                    <div key={item.id} className="flex items-start justify-between gap-2 text-sm">
                       <span className="text-slate-700">{item.description}{item.quantity > 1 ? ` ×${item.quantity}` : ""}</span>
-                      <span className="font-medium text-slate-800 tabular-nums">₹{Number(item.total).toLocaleString("en-IN")}</span>
+                      <div className="text-right shrink-0">
+                        {item.mrp != null && Number(item.mrp) > Number(item.total) && (
+                          <p className="text-[10px] text-slate-400 line-through tabular-nums">₹{Number(item.mrp).toLocaleString("en-IN")}</p>
+                        )}
+                        <span className="font-medium text-slate-800 tabular-nums">₹{Number(item.total).toLocaleString("en-IN")}</span>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -634,25 +645,38 @@ export default function ServiceRequestDetailPage() {
             {srData.inventoryUsages && srData.inventoryUsages.length > 0 && (
               <div>
                 <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Parts (Inventory)</p>
-                <div className="space-y-1">
-                  {srData.inventoryUsages.map(u => (
-                    <div key={u.id} className="flex justify-between text-sm">
-                      <span className="text-slate-700">{u.inventoryItem.name}{u.quantity > 1 ? ` ×${u.quantity}` : ""}</span>
-                      <span className="font-medium text-slate-800 tabular-nums">₹{Number(u.total).toLocaleString("en-IN")}</span>
-                    </div>
-                  ))}
+                <div className="space-y-1.5">
+                  {srData.inventoryUsages.map(u => {
+                    const mrp = u.inventoryItem.mrp;
+                    return (
+                      <div key={u.id} className="flex items-start justify-between gap-2 text-sm">
+                        <span className="text-slate-700">{u.inventoryItem.name}{u.quantity > 1 ? ` ×${u.quantity}` : ""}</span>
+                        <div className="text-right shrink-0">
+                          {mrp != null && Number(mrp) * u.quantity > Number(u.total) && (
+                            <p className="text-[10px] text-slate-400 line-through tabular-nums">₹{(Number(mrp) * u.quantity).toLocaleString("en-IN")}</p>
+                          )}
+                          <span className="font-medium text-slate-800 tabular-nums">₹{Number(u.total).toLocaleString("en-IN")}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
-            {/* Packages */}
+            {/* Packages — show mrpTotal struck through, packagePrice as actual */}
             {appliedPackages.length > 0 && (
               <div>
                 <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Service Packages</p>
-                <div className="space-y-1">
+                <div className="space-y-1.5">
                   {appliedPackages.map(pkg => (
-                    <div key={pkg.id} className="flex justify-between text-sm">
+                    <div key={pkg.id} className="flex items-start justify-between gap-2 text-sm">
                       <span className="text-slate-700">{pkg.packageName}</span>
-                      <span className="font-medium text-slate-800 tabular-nums">₹{Number(pkg.packagePrice).toLocaleString("en-IN")}</span>
+                      <div className="text-right shrink-0">
+                        {Number(pkg.mrpTotal) > Number(pkg.packagePrice) && (
+                          <p className="text-[10px] text-slate-400 line-through tabular-nums">₹{Number(pkg.mrpTotal).toLocaleString("en-IN")}</p>
+                        )}
+                        <span className="font-medium text-slate-800 tabular-nums">₹{Number(pkg.packagePrice).toLocaleString("en-IN")}</span>
+                      </div>
                     </div>
                   ))}
                 </div>

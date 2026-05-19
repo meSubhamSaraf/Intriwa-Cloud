@@ -48,6 +48,7 @@ export const POST = withAuthParams<{ id: string }>(async (req, { garageId, userI
             mrpPrice: item.mrpPrice,
             quantity: item.quantity,
             inventoryItemId: item.inventoryItemId ?? null,
+            isLabour: item.isLabour,
           })),
         },
       },
